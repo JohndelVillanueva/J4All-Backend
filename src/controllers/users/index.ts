@@ -1,7 +1,8 @@
 import { type Context } from 'hono';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod'; // For validation
-import { PrismaClient } from '@prisma/client';  
+import PrismaClient from '@prisma/client';  
+
 
 // User creation schema
 const CreateUserSchema = z.object({
@@ -22,41 +23,91 @@ export function getUsersController(c: Context) {
     return c.json({ message: 'Hello, world!' });
 }
 
-export const createUser = async (c: Context) => {
+export const createUserController = async (c: Context) => {
   try {
+    // 1. Get and sanitize input
     const rawData = await c.req.json();
-    const validatedData = CreateUserSchema.safeParse(rawData);
+    const sanitizedData = Object.fromEntries(
+      Object.entries(rawData).map(([key, value]) => 
+        [key, typeof value === 'string' ? value.trim() : value]
+      )
+    );
 
+    // 2. Validate input
+    const validatedData = CreateUserSchema.safeParse(sanitizedData);
     if (!validatedData.success) {
       return c.json({ 
         success: false, 
         errors: validatedData.error.flatten().fieldErrors 
       }, 400);
     }
+    // 3. Check password strength (optional)
+    const passwordStrength = require('zxcvbn')(validatedData.data.password);
+    if (passwordStrength.score < 3) {
+      return c.json({ 
+        success: false, 
+        error: "Password too weak",
+        suggestions: passwordStrength.feedback.suggestions
+      }, 400);
+    }
 
-    const prisma = new PrismaClient();
-    const hashedPassword = await bcrypt.hash(validatedData.data.password, 10);
+    const prisma = PrismaClient;
+    const normalizedEmail = validatedData.data.email.toLowerCase();
 
-    const user = await prisma.user.create({
+    // 4. Create user in transaction
+    const user = await prisma.$transaction(async (tx) => {
+      const hashedPassword = await bcrypt.hash(validatedData.data.password, 10);
+      
+      return await tx.user.create({
+        data: {
+          ...validatedData.data,
+          email: normalizedEmail,
+          password: hashedPassword
+        }
+      });
+    });
+
+    // 5. Create email verification token (optional)
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    await prisma.verificationToken.create({
       data: {
-        ...validatedData.data,
-        password: hashedPassword
+        userId: user.id,
+        token: verificationToken,
+        expires: new Date(Date.now() + 24 * 60 * 60 * 1000)
       }
     });
-    
+
+    // 6. Send response
     return c.json({
       success: true,
       data: {
         id: user.id,
-        username: user.username,
-        email: user.email
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        userType: user.userType
       }
     }, 201);
+
   } catch (error: unknown) {
-    if (error instanceof Error && error.message === "EMAIL_EXISTS") {
-      return c.json({ success: false, error: "Email already in use" }, 409);
+    // Enhanced error handling
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        const target = error.meta?.target as string[];
+        if (target.includes('email')) {
+          return c.json({ 
+            success: false, 
+            error: "Email already in use" 
+          }, 409);
+        }
+      }
     }
-    return c.json({ success: false, error: "Internal server error" }, 500);
+
+    console.error('User creation error:', error);
+    return c.json({ 
+      success: false, 
+      error: "Internal server error" 
+    }, 500);
   }
 };
 
