@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Employer {
+  id                  Int     @id @default(autoincrement())
+  user_id             Int     @unique
+  company_name        String
+  company_description String?
+  industry            String?
+  company_size        String?
+  website_url         String?
+  logo_path           String?
+  founded_year        Int?
+
+  job_listings JobListing[]     @relation("EmployerJobListings")
+  applications JobApplication[] @relation("EmployerToApplications")
+
+  @@map("employers")
+}
+
+model JobApplication {
+  id               Int      @id @default(autoincrement())
+  job_id           Int
+  seeker_id        Int
+  employer_id      Int
+  application_date DateTime @default(now())
+  cover_letter     String?
+  status           String   @default("PENDING")
+  notes            String?
+
+  job_listing JobListing @relation("JobListingApplications", fields: [job_id], references: [id], map: "fk_job_listing_app")
+  seeker      JobSeeker  @relation("SeekerApplications", fields: [seeker_id], references: [id], map: "fk_seeker_app")
+  employer    Employer   @relation("EmployerToApplications", fields: [employer_id], references: [id], map: "fk_employer_app")
+
+  @@map("job_applications")
+}
+
+model JobListing {
+  id               Int       @id @default(autoincrement())
+  employer_id      Int
+  job_title        String
+  job_description  String?
+  job_requirements String?
+  job_location     String?
+  job_type         String?
+  salary_range_min Float?
+  salary_range_max Float?
+  posted_date      DateTime  @default(now())
+  expiration_date  DateTime?
+  is_active        Boolean   @default(true)
+
+  employer        Employer           @relation("EmployerJobListings", fields: [employer_id], references: [id], map: "fk_employer_listing")
+  applications    JobApplication[]   @relation("JobListingApplications")
+  required_skills JobRequiredSkill[] @relation("JobListingSkills")
+
+  @@map("job_listings")
+}
+
+model JobRequiredSkill {
+  id               Int     @id @default(autoincrement())
+  job_id           Int
+  skill_id         Int
+  is_required      Boolean @default(true)
+  importance_level Int     @default(1)
+
+  job_listing JobListing @relation("JobListingSkills", fields: [job_id], references: [id], map: "fk_job_required_skill")
+  skill       Skill      @relation(fields: [skill_id], references: [id], map: "fk_required_skill")
+
+  @@map("job_required_skills")
+}
+
+model JobSeeker {
+  id                  Int     @id @default(autoincrement())
+  user_id             Int     @unique
+  resume_text         String?
+  resume_file_path    String?
+  education           String?
+  experience_years    Int?
+  current_job_title   String?
+  desired_job_title   String?
+  desired_salary      Float?
+  location_preference String?
+
+  applications JobApplication[] @relation("SeekerApplications")
+  skills       JobSeekerSkill[]
+
+  @@map("job_seekers")
+}
+
+model JobSeekerSkill {
+  id                  Int  @id @default(autoincrement())
+  seeker_id           Int
+  skill_id            Int
+  proficiency_level   Int? @default(1) // 1-5 scale
+  years_of_experience Int? @default(0)
+
+  seeker JobSeeker @relation(fields: [seeker_id], references: [id], map: "fk_seeker_skill")
+  skill  Skill     @relation(fields: [skill_id], references: [id], map: "fk_skill")
+
+  @@map("job_seekers_skills")
+}
+
+model SavedJob {
+  id         Int      @id @default(autoincrement())
+  seeker_id  Int
+  job_id     Int
+  saved_date DateTime @default(now())
+  notes      String?
+
+  @@unique([seeker_id, job_id]) // Prevents duplicate saves
+  @@map("saved_jobs")
+}
+
+model Skill {
+  id       Int     @id @default(autoincrement())
+  name     String  @unique @map("skill_name")
+  category String? @map("skill_category")
+
+  seeker_skills       JobSeekerSkill[]
+  job_required_skills JobRequiredSkill[]
+
+  @@map("skills")
+}
+
+model User {
+  id            Int       @id @default(autoincrement())
+  username      String    @unique
+  email         String    @unique
+  password_hash String
+  user_type     String // "employer" or "seeker"
+  first_name    String?
+  last_name     String?
+  phone_number  String?
+  created_at    DateTime  @default(now())
+  last_login    DateTime?
+  is_active     Boolean   @default(true)
+
+  @@map("users")
+}
