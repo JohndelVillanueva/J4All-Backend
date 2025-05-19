@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
-import { deleteUserController, getUserController, getUsersController, updateUserController, createUserController } from './index.js';
+import { deleteUserController, getUserController, updateUserController, createUserController, userLoginController } from './index.js';
 
 
 const router = new Hono()
 
-.get('/users', getUsersController ) 
+.post('/login', userLoginController ) 
 .post('/create', createUserController)
 .get('/users/:id', getUserController)
 .delete('/users/:id', deleteUserController)

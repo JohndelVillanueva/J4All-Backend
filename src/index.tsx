@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { signup } from '../controllers/auth.controller'
+import { createUserController, userLogin } from './controllers/users/index' // Import signup and userLogin controllers
 
 const app = new Hono()
 
@@ -8,7 +8,8 @@ const app = new Hono()
 app.use('*', cors())
 
 // Routes
-app.post('/api/signup', signup)
+app.post('/api/signup', createUserController )
+app.post('/api/login', userLogin) // Assuming you have a login controller
 
 // Health Check
 app.get('/', (c) => c.text('J4All API is running'))

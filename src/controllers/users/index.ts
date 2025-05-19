@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod"; // For validation
 import { PrismaClient, Prisma } from "@prisma/client";
 import { checkRateLimit } from "../../utils/rate-limit.js";
+import { generateToken, verifyPassword } from '../../utils/auth.js'; // Assuming you have an auth utility for token generation
 import crypto from "crypto";
 
 // User creation schema
@@ -23,9 +24,52 @@ const CreateUserSchema = z.object({
 
 // type CreateUserInput = z.infer<typeof CreateUserSchema>;
 
-export function getUsersController(c: Context) {
-  return c.json({ message: "Hello, world!" });
+export async function userLoginController(c: Context) {
+  const prisma = new PrismaClient();
+
+  try {
+    const { email, password, userType } = await c.req.json();
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user || user.user_type !== userType) {
+      return c.json({ error: 'Invalid credentials' }, 401);
+    }
+
+    const isValid = await verifyPassword(password, user.password_hash);
+    if (!isValid) {
+      return c.json({ error: 'Invalid credentials' }, 401);
+    }
+
+    // ✅ Type-safe token generation
+    const token = generateToken({
+      id: user.id,
+      email: user.email,
+      userType: user.user_type,
+    });
+
+return c.json({
+  success: true,  // Add this
+  message: 'Login successful',
+  token,
+  user: {
+    id: user.id,
+    email: user.email,
+    user_type: user.user_type,
+    first_name: user.first_name,
+    last_name: user.last_name,
+  },
+});
+  } catch (error) {
+    console.error('Login error:', error);
+    return c.json({ error: 'Internal server error' }, 500);
+  } finally {
+    await prisma.$disconnect();
+  }
 }
+
 
 export const createUserController = async (c: Context) => {
   const prisma = new PrismaClient();
