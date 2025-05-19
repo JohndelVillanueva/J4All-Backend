@@ -60,7 +60,7 @@ export const createUserController = async (c: Context) => {
       console.log("Validation errors:", JSON.stringify(errors, null, 2));
       return c.json(
         {
-          success: false,
+        success: false,
           errors: errors,
         },
         400
@@ -75,13 +75,13 @@ export const createUserController = async (c: Context) => {
       if (passwordStrength.score < 3) {
         return c.json(
           {
-            success: false,
+        success: false,
             error: "Password too weak",
             suggestions: passwordStrength.feedback.suggestions,
           },
           400
         );
-      }
+    }
     } catch (e) {
       console.error("Password strength check failed:", e);
       // Continue without password strength check if zxcvbn fails
@@ -110,10 +110,10 @@ export const createUserController = async (c: Context) => {
 
         console.log(`User creation attempt: ${normalizedEmail}`);
         const createdUser = await tx.user.create({
-          data: {
+      data: {
             username: userData.username,
             email: normalizedEmail,
-            password_hash: hashedPassword,
+        password_hash: hashedPassword,
             user_type: userData.user_type,
             first_name: userData.first_name,
             last_name: userData.last_name,
@@ -133,8 +133,8 @@ export const createUserController = async (c: Context) => {
           user_id: user.id,
           token: verificationToken,
           expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        },
-      });
+      },
+    });
     } catch (tokenError) {
       console.error("Error creating verification token:", tokenError);
       // Continue even if token creation fails
@@ -167,13 +167,13 @@ export const createUserController = async (c: Context) => {
         if (target.includes("email")) {
           return c.json(
             {
-              success: false,
+          success: false,
               error: "Email already in use",
             },
             409
           );
-        }
       }
+    }
     }
 
     const errorResponse = {
@@ -201,4 +201,5 @@ export function deleteUserController(c: Context) {
 
 export function updateUserController(c: Context) {
   return c.json({ message: "Hello, world!" });
-}
+}               
+
