@@ -128,18 +128,39 @@ model Skill {
   @@map("skills")
 }
 
+enum UserType {
+  employer
+  general
+  pwd
+  indigenous
+}
+
 model User {
-  id            Int      @id @default(autoincrement())
-  username      String   @unique
-  email         String   @unique
+  id            Int       @id @default(autoincrement())
+  username      String    @unique
+  email         String    @unique
   password_hash String
-  user_type     String   // "employer" or "seeker"
+  user_type     UserType  // Now uses the enum
   first_name    String?
   last_name     String?
   phone_number  String?
-  created_at    DateTime @default(now())
+  created_at    DateTime  @default(now())
   last_login    DateTime?
-  is_active     Boolean  @default(true)
+  is_active     Boolean   @default(true)
+
+  verificationTokens VerificationToken[]
 
   @@map("users")
+}
+
+model VerificationToken {
+  id        Int      @id @default(autoincrement())
+  user_id    Int
+  token     String   @unique
+  expires   DateTime
+  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  created_at DateTime @default(now())
+
+  @@index([user_id])
+  @@map("verification_tokens")
 }
