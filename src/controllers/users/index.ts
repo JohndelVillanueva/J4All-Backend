@@ -21,7 +21,7 @@ const CreateUserSchema = z.object({
   phone_number: z.string().regex(/^\+?[0-9\s-]+$/).optional(),
 });
 
-type CreateUserInput = z.infer<typeof CreateUserSchema>;
+// type CreateUserInput = z.infer<typeof CreateUserSchema>;
 
 export function getUsersController(c: Context) {
   return c.json({ message: "Hello, world!" });
