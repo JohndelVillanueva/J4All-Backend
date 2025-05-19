@@ -5,7 +5,7 @@ import { deleteUserController, getUserController, getUsersController, updateUser
 const router = new Hono()
 
 .get('/users', getUsersController ) 
-.post('/users', createUserController)
+.post('/create', createUserController)
 .get('/users/:id', getUserController)
 .delete('/users/:id', deleteUserController)
 .put('/users/:id', updateUserController)
