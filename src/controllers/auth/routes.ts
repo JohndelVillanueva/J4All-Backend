@@ -6,7 +6,7 @@ const auth = new Hono()
 
 .post('/login', userLoginController ) 
 .post('/create', createUserController)
-.post('createUserEmployer', createEmployerController)
+.post('/employers', createEmployerController)
 
 export default auth;
 

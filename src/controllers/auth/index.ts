@@ -32,19 +32,65 @@ const CreateUserSchema = z.object({
     .optional(),
 });
 
-const signupSchema = z.object({
-  companyName: z.string().min(1, "Company name is required"),
-  contactPerson: z.string().min(1, "Contact person is required"),
-  email: z.string().email("Invalid email format"),
-  phone: z.string().min(10, "Phone number must be at least 10 digits"),
-  // address: z.string().min(5, "Address is too short"),
-  industry: z.string().min(1, "Industry is required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
-  companyDescription: z.string().optional(),
-  companySize: z.string().min(1, "Company size is required"), // Added field
-  websiteUrl: z.string().url("Invalid website URL").optional(), // Optional, if you use it
-  foundedYear: z.number().int().optional(), // Optional, if you use it
-})
+const employerSignUpSchema = z.object({
+  // Required fields matching the employers table
+  companyName: z.string()
+    .min(1, "Company name is required")
+    .max(100, "Company name too long"),
+    
+  contactPerson: z.string()
+    .min(1, "Contact person is required")
+    .max(100, "Name too long"),
+    
+  email: z.string()
+    .email("Invalid email format")
+    .max(100, "Email too long"),
+    
+  phone: z.string()
+    .min(10, "Phone must be at least 10 digits")
+    .max(15, "Phone number too long"),
+    
+  // address → company_description in DB
+  address: z.string()
+    .min(5, "Address too short (min 5 chars)")
+    .max(500, "Address too long (max 500 chars)"),
+    
+  industry: z.string()
+    .min(1, "Industry is required")
+    .max(100, "Industry name too long"),
+    
+  // Password fields (not stored in employers table but in users table)
+  password: z.string()
+    .min(8, "Password must be 8+ characters")
+    .regex(/[A-Z]/, "Must contain uppercase letter")
+    .regex(/[a-z]/, "Must contain lowercase letter")
+    .regex(/[0-9]/, "Must contain number"),
+    
+  confirmPassword: z.string(),
+  
+  // Optional fields with defaults from DB schema
+  companySize: z.enum(["1-10", "11-50", "51-200", "201-500", "501+"])
+    .default("1-10"),
+    
+  websiteUrl: z.string()
+    .url("Invalid website URL")
+    .max(200, "URL too long")
+    .optional()
+    .or(z.literal("")),
+    
+  foundedYear: z.number()
+    .min(1900, "Year must be ≥ 1900")
+    .max(new Date().getFullYear(), "Can't be in future")
+    .default(new Date().getFullYear()),
+    
+  // Required for form submission
+  agreeToTerms: z.literal(true, {
+    errorMap: () => ({ message: "You must accept terms" })
+  })
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"]
+});
 
 // Define proper TypeScript interfaces
 interface LoginRequest {
@@ -322,100 +368,46 @@ export const createEmployerController = async (c: Context) => {
   const prisma = new PrismaClient();
   
   try {
-    // Validate request body
-    const bodyParseResult = signupSchema.safeParse(await c.req.json());
-    if (!bodyParseResult.success) {
-      throw new HTTPException(400, { 
-        message: bodyParseResult.error.errors.map(e => e.message).join(', ') 
-      });
-    }
+    const { user, employer } = await c.req.json();
 
-    // Destructure with defaults and field name adjustments
-    const {
-      companyName,
-      contactPerson,
-      email,
-      phone,
-      address = '', // Accept address but make optional
-      industry,
-      password: password, // Accept password_hash but rename to password
-      // Optional fields with defaults
-      companyDescription = address, // Use address if companyDescription not provided
-      companySize = "1-10",
-      websiteUrl = "",
-      foundedYear = new Date().getFullYear()
-    } = bodyParseResult.data;
-
-    // Check for existing user
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      throw new HTTPException(409, { message: 'Email already registered' });
-    }
-
-    // Process names - more robust handling
-    const nameParts = contactPerson.trim().split(/\s+/);
-    const firstName = nameParts[0] || '';
-    const lastName = nameParts.slice(1).join(' ') || '';
-
-    // Hash password
-    const hashedPassword = await hash(password, 12);
-
-    // Transaction for creating both records
-    const result = await prisma.$transaction(async (tx) => {
-      // Create user record
-      const user = await tx.user.create({
+    return await prisma.$transaction(async (tx) => {
+      // 1. Create User
+      const userRecord = await tx.user.create({
         data: {
-          username: email,
-          email,
-          password_hash: hashedPassword,
-          user_type: 'employer',
-          first_name: firstName,
-          last_name: lastName,
-          phone_number: phone,
+          email: user.email,
+          username: user.username,
+          password_hash: await hash(user.password, 12),
+          first_name: user.firstName,
+          last_name: user.lastName,
+          phone_number: user.phone,
+          user_type: "employer",
           is_active: true,
-          created_at: new Date(),
-          last_login: null
         }
       });
 
-      // Create employer record with all fields
-      const employer = await tx.employer.create({
+      // 2. Create Employer
+      const employerRecord = await tx.employer.create({
         data: {
-          user_id: user.id,
-          company_name: companyName,
-          company_description: companyDescription,
-          industry,
-          company_size: companySize,
-          website_url: websiteUrl || null,
-          founded_year: foundedYear,
-          address: address, // Now properly storing address
-          logo_path: null
+          user_id: userRecord.id,
+          company_name: employer.companyName,
+          company_description: employer.companyDescription,
+          industry: employer.industry,
+          company_size: employer.companySize,
+          website_url: employer.websiteUrl,
+          founded_year: employer.foundedYear,
+          logo_path: null,
         }
       });
 
-      return { user, employer };
+      return c.json({
+        user: { id: userRecord.id, email: userRecord.email },
+        employer: { id: employerRecord.id, companyName: employerRecord.company_name }
+      }, 201);
     });
-
-    // Remove sensitive data before responding
-    const { password_hash: _, ...safeUserData } = result.user;
-
-    return c.json({
-      success: true,
-      user: {
-        ...safeUserData,
-        full_name: `${safeUserData.first_name} ${safeUserData.last_name}`.trim()
-      },
-      employer: result.employer
-    }, 201);
 
   } catch (error) {
-    if (error instanceof HTTPException) {
-      throw error;
-    }
-    console.error('Signup error:', error);
-    throw new HTTPException(500, { 
-      message: 'Registration failed. Please try again.' 
-    });
+    console.error(error);
+    return c.json({ error: "Registration failed" }, 500);
   } finally {
     await prisma.$disconnect();
   }
