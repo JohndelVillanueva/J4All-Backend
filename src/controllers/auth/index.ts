@@ -1,10 +1,11 @@
 import { type Context } from "hono";
-import bcrypt from "bcryptjs";
+import bcrypt, { hash } from "bcryptjs";
 import { z } from "zod"; // For validation
 import { PrismaClient, Prisma } from "@prisma/client";
 import { checkRateLimit } from "../../utils/rate-limit.js";
 import { generateToken, verifyPassword } from "../../utils/auth.js"; // Assuming you have an auth utility for token generation
 import crypto from "crypto";
+import { HTTPException } from "hono/http-exception";
 
 // User creation schema
 const CreateUserSchema = z.object({
@@ -30,6 +31,20 @@ const CreateUserSchema = z.object({
     .regex(/^\+?[0-9\s-]+$/)
     .optional(),
 });
+
+const signupSchema = z.object({
+  companyName: z.string().min(1, "Company name is required"),
+  contactPerson: z.string().min(1, "Contact person is required"),
+  email: z.string().email("Invalid email format"),
+  phone: z.string().min(10, "Phone number must be at least 10 digits"),
+  // address: z.string().min(5, "Address is too short"),
+  industry: z.string().min(1, "Industry is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  companyDescription: z.string().optional(),
+  companySize: z.string().min(1, "Company size is required"), // Added field
+  websiteUrl: z.string().url("Invalid website URL").optional(), // Optional, if you use it
+  foundedYear: z.number().int().optional(), // Optional, if you use it
+})
 
 // Define proper TypeScript interfaces
 interface LoginRequest {
@@ -302,3 +317,106 @@ export const createUserController = async (c: Context) => {
     await prisma.$disconnect();
   }
 };
+
+export const createEmployerController = async (c: Context) => {
+  const prisma = new PrismaClient();
+  
+  try {
+    // Validate request body
+    const bodyParseResult = signupSchema.safeParse(await c.req.json());
+    if (!bodyParseResult.success) {
+      throw new HTTPException(400, { 
+        message: bodyParseResult.error.errors.map(e => e.message).join(', ') 
+      });
+    }
+
+    // Destructure with defaults and field name adjustments
+    const {
+      companyName,
+      contactPerson,
+      email,
+      phone,
+      address = '', // Accept address but make optional
+      industry,
+      password: password, // Accept password_hash but rename to password
+      // Optional fields with defaults
+      companyDescription = address, // Use address if companyDescription not provided
+      companySize = "1-10",
+      websiteUrl = "",
+      foundedYear = new Date().getFullYear()
+    } = bodyParseResult.data;
+
+    // Check for existing user
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      throw new HTTPException(409, { message: 'Email already registered' });
+    }
+
+    // Process names - more robust handling
+    const nameParts = contactPerson.trim().split(/\s+/);
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    // Hash password
+    const hashedPassword = await hash(password, 12);
+
+    // Transaction for creating both records
+    const result = await prisma.$transaction(async (tx) => {
+      // Create user record
+      const user = await tx.user.create({
+        data: {
+          username: email,
+          email,
+          password_hash: hashedPassword,
+          user_type: 'employer',
+          first_name: firstName,
+          last_name: lastName,
+          phone_number: phone,
+          is_active: true,
+          created_at: new Date(),
+          last_login: null
+        }
+      });
+
+      // Create employer record with all fields
+      const employer = await tx.employer.create({
+        data: {
+          user_id: user.id,
+          company_name: companyName,
+          company_description: companyDescription,
+          industry,
+          company_size: companySize,
+          website_url: websiteUrl || null,
+          founded_year: foundedYear,
+          address: address, // Now properly storing address
+          logo_path: null
+        }
+      });
+
+      return { user, employer };
+    });
+
+    // Remove sensitive data before responding
+    const { password_hash: _, ...safeUserData } = result.user;
+
+    return c.json({
+      success: true,
+      user: {
+        ...safeUserData,
+        full_name: `${safeUserData.first_name} ${safeUserData.last_name}`.trim()
+      },
+      employer: result.employer
+    }, 201);
+
+  } catch (error) {
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+    console.error('Signup error:', error);
+    throw new HTTPException(500, { 
+      message: 'Registration failed. Please try again.' 
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
