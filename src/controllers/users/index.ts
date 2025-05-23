@@ -5,6 +5,7 @@ import { PrismaClient, Prisma } from "@prisma/client";
 import { checkRateLimit } from "../../utils/rate-limit.js";
 import { generateToken, verifyPassword } from '../../utils/auth.js'; // Assuming you have an auth utility for token generation
 import crypto from "crypto";
+import { UserType } from '@prisma/client'; // Add this import
 
 // User creation schema
 const CreateUserSchema = z.object({
@@ -22,10 +23,81 @@ const CreateUserSchema = z.object({
   phone_number: z.string().regex(/^\+?[0-9\s-]+$/).optional(),
 });
 
+const employerSignUpSchema = z
+  .object({
+    // Required fields matching the employers table
+    companyName: z
+      .string()
+      .min(1, "Company name is required")
+      .max(100, "Company name too long"),
+
+    contactPerson: z
+      .string()
+      .min(1, "Contact person is required")
+      .max(100, "Name too long"),
+
+    email: z.string().email("Invalid email format").max(100, "Email too long"),
+
+    phone: z
+      .string()
+      .min(10, "Phone must be at least 10 digits")
+      .max(15, "Phone number too long"),
+
+    // address → company_description in DB
+    address: z
+      .string()
+      .min(5, "Address too short (min 5 chars)")
+      .max(500, "Address too long (max 500 chars)"),
+
+    industry: z
+      .string()
+      .min(1, "Industry is required")
+      .max(100, "Industry name too long"),
+
+    // Password fields (not stored in employers table but in users table)
+    password: z
+      .string()
+      .min(8, "Password must be 8+ characters")
+      .regex(/[A-Z]/, "Must contain uppercase letter")
+      .regex(/[a-z]/, "Must contain lowercase letter")
+      .regex(/[0-9]/, "Must contain number"),
+
+    confirmPassword: z.string(),
+
+    // Optional fields with defaults from DB schema
+    companySize: z
+      .enum(["1-10", "11-50", "51-200", "201-500", "501+"])
+      .default("1-10"),
+
+    websiteUrl: z
+      .string()
+      .url("Invalid website URL")
+      .max(200, "URL too long")
+      .optional()
+      .or(z.literal("")),
+
+    foundedYear: z
+      .number()
+      .min(1900, "Year must be ≥ 1900")
+      .max(new Date().getFullYear(), "Can't be in future")
+      .default(new Date().getFullYear()),
+
+    // Required for form submission
+    agreeToTerms: z.literal(true, {
+      errorMap: () => ({ message: "You must accept terms" }),
+    }),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ["confirmPassword"],
+  });
+
+const prisma = new PrismaClient();
+
+
 // type CreateUserInput = z.infer<typeof CreateUserSchema>;
 
 export async function userLoginController(c: Context) {
-  const prisma = new PrismaClient();
 
   try {
     const { email, password, userType } = await c.req.json();
@@ -72,7 +144,6 @@ return c.json({
 
 
 export const createUserController = async (c: Context) => {
-  const prisma = new PrismaClient();
   try {
     // 1. Get and sanitize input
     let rawData;
@@ -234,6 +305,157 @@ export const createUserController = async (c: Context) => {
     await prisma.$disconnect();
   }
 };
+
+export const createEmployerController = async (c: Context) => {
+  console.log('createEmployerController called');
+
+  try {
+    const rawData = await c.req.json();
+
+    // Flatten and map input data
+    const mergedData = {
+      companyName: rawData.employer?.companyName,
+      contactPerson: `${rawData.user?.firstName || ""} ${rawData.user?.lastName || ""}`.trim(),
+      email: rawData.user?.email,
+      phone: rawData.user?.phone,
+      address: rawData.employer?.address || rawData.employer?.companyAddress,
+      industry: rawData.employer?.industry,
+      password: rawData.user?.password,
+      confirmPassword: rawData.user?.confirmPassword,
+      companySize: rawData.employer?.companySize,
+      websiteUrl: rawData.employer?.websiteUrl,
+      foundedYear: rawData.employer?.foundedYear,
+      agreeToTerms: rawData.agreeToTerms,
+    };
+
+    // 1. Validate input
+    const validation = employerSignUpSchema.safeParse(mergedData);
+    if (!validation.success) {
+      return c.json({
+        success: false,
+        errors: validation.error.flatten(),
+      }, 400);
+    }
+
+    const {
+      email,
+      password,
+      companyName,
+      contactPerson,
+      address,
+      industry,
+      companySize,
+      websiteUrl,
+      foundedYear,
+    } = validation.data;
+
+    // 2. Check for duplicate user by email
+    const existingUser = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (existingUser) {
+      return c.json({
+        success: false,
+        error: 'Email already in use',
+      }, 409);
+    }
+
+  // 3. Create user and employer inside a transaction
+  const result = await prisma.$transaction(async (tx) => {
+    const baseUsername = email.split('@')[0];
+    let finalUsername = baseUsername;
+    let suffix = 1;
+    const MAX_ATTEMPTS = 10;
+    let attempts = 0;
+    let usernameExists = true;
+
+    // Validate base username
+    if (baseUsername.length < 3) {
+      throw new Error('Username must be at least 3 characters');
+    }
+
+    // Generate unique username
+    while (usernameExists && attempts < MAX_ATTEMPTS) {
+      const existingUser = await tx.user.findUnique({
+        where: { 
+          username: finalUsername 
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (!existingUser) {
+        usernameExists = false;
+      } else {
+        finalUsername = `${baseUsername}${suffix}`;
+        suffix++;
+        attempts++;
+      }
+    }
+
+    if (attempts >= MAX_ATTEMPTS) {
+      throw new Error('Could not generate a unique username');
+    }
+
+    // Create user with guaranteed unique username
+    const userRecord = await tx.user.create({
+      data: {
+        email: email.toLowerCase(),
+        username: finalUsername,
+        password_hash: await bcrypt.hash(password, 12),
+        first_name: rawData.user?.firstName || null,
+        last_name: rawData.user?.lastName || null,
+        phone_number: rawData.user?.phone || null,
+        user_type: UserType.employer,
+        is_active: true,
+        created_at: new Date(),
+      },
+    });
+
+    const employerRecord = await tx.employer.create({
+      data: {
+        user_id: userRecord.id,
+        company_name: companyName,
+        company_description: address || null,
+        industry,
+        company_size: companySize,
+        website_url: websiteUrl || null,
+        founded_year: foundedYear || null,
+        logo_path: null,
+        contact_person: contactPerson,
+      },
+    });
+
+    return { userRecord, employerRecord };
+  });
+
+    // 4. Return success
+    return c.json({
+      success: true,
+      data: {
+        user: {
+          id: result.userRecord.id,
+          email: result.userRecord.email,
+          username: result.userRecord.username,
+        },
+        employer: {
+          id: result.employerRecord.id,
+          companyName: result.employerRecord.company_name,
+        },
+      },
+    }, 201);
+  } catch (error) {
+    console.error('Employer creation error:', error);
+    return c.json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    }, 500);
+  }
+};
+
 
 export function getUserController(c: Context) {
   return c.json({ message: "Hello, world!" });

@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { routes } from './controllers/routes.js'
+import { auth, routes } from './controllers/routes.js'
 
 const app = new Hono()
 
@@ -25,6 +25,10 @@ app.use('*', async (c, next) => {
 // Mount routes at root level since the proxy will handle the /api prefix
 routes.forEach((route) => {
   app.route('', route);
+});
+
+auth.forEach((authRoute) => {
+  app.route('', authRoute);
 });
 
 // Add a test route

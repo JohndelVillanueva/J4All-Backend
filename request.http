@@ -1,0 +1,25 @@
+POST http://localhost:3111/create
+Content-Type: application/json
+
+{
+  "user": {
+    "email": "test@company.com",
+    "password": "StrongPass1",
+    "confirmPassword": "StrongPass1",
+    "firstName": "John",
+    "lastName": "Doe",
+    "phone": "1234567890"
+  },
+  "employer": {
+    "companyName": "Tech Corp",
+    "companyDescription": "A leading tech company",
+    "industry": "Software",
+    "companySize": "51-200",
+    "websiteUrl": "https://techcorp.com",
+    "foundedYear": 2010
+  },
+  "agreeToTerms": true
+}
+
+###
+GET http://localhost:3111/
