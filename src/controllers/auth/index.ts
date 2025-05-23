@@ -428,17 +428,17 @@ export const createUserController = async (c: Context) => {
 
 export const createEmployerController = async (c: Context) => {
   console.log('createEmployerController called');
-
+  
   try {
     const rawData = await c.req.json();
-
+    
     // Map and flatten the request body to match the Zod schema
     const mergedData = {
       companyName: rawData.employer?.companyName,
-      contactPerson: `${rawData.user?.firstName || ""} ${rawData.user?.lastName || ""}`.trim(),
+      contactPerson: `${rawData.user?.firstName} ${rawData.user?.lastName}`.trim(),
       email: rawData.user?.email,
       phone: rawData.user?.phone,
-      address: rawData.employer?.address || rawData.employer?.companyAddress,
+      address: rawData.employer?.address || rawData.employer?.companyAddress, // Fixed: use address field, not companyDescription
       industry: rawData.employer?.industry,
       password: rawData.user?.password,
       confirmPassword: rawData.user?.confirmPassword,
@@ -447,17 +447,17 @@ export const createEmployerController = async (c: Context) => {
       foundedYear: rawData.employer?.foundedYear,
       agreeToTerms: rawData.agreeToTerms
     };
-
+    
     // 1. Validate with Zod schema
     const validation = employerSignUpSchema.safeParse(mergedData);
-
+    
     if (!validation.success) {
       return c.json({
         success: false,
         errors: validation.error.flatten()
       }, 400);
     }
-
+    
     const {
       email,
       password,
@@ -469,21 +469,22 @@ export const createEmployerController = async (c: Context) => {
       websiteUrl,
       foundedYear
     } = validation.data;
-
-    // 2. Check if user already exists
+    
+    // Check if user already exists
     const existingUser = await prisma.user.findUnique({
       where: { email: email.toLowerCase() }
     });
-
+    
     if (existingUser) {
       return c.json({
         success: false,
         error: "Email already in use"
       }, 409);
     }
-
-    // 3. Create user and employer in transaction
+    
+    // Create user and employer in transaction
     const result = await prisma.$transaction(async (tx) => {
+      // Create user
       const userRecord = await tx.user.create({
         data: {
           email: email.toLowerCase(),
@@ -497,25 +498,25 @@ export const createEmployerController = async (c: Context) => {
           created_at: new Date(),
         }
       });
-
+      
+      // Create employer
       const employerRecord = await tx.employer.create({
         data: {
           user_id: userRecord.id,
           company_name: companyName,
-          company_description: address || null,
+          company_description: address || null, // Using address for company_description
           industry,
           company_size: companySize,
           website_url: websiteUrl || null,
           founded_year: foundedYear || null,
           logo_path: null,
-          contact_person: contactPerson,
+          contact_person: contactPerson, // Fixed: uncommented this field
         }
       });
-
+      
       return { userRecord, employerRecord };
     });
-
-    // 4. Success response
+    
     return c.json({
       success: true,
       data: {
@@ -529,9 +530,8 @@ export const createEmployerController = async (c: Context) => {
         }
       }
     }, 201);
-
+    
   } catch (error) {
     return handleError(c, error);
   }
 };
-

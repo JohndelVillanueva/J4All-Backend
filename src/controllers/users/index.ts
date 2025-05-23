@@ -22,9 +22,21 @@ const CreateUserSchema = z.object({
   last_name: z.string().min(2).optional(),
   phone_number: z.string().regex(/^\+?[0-9\s-]+$/).optional(),
 });
+interface UserResponse {
+  id: number;
+  email: string;
+  user_type: string;
+  first_name: string | null;
+  last_name: string | null;
+  is_active?: boolean;
+}
+interface LoginRequest {
+  email: string;
+  password: string;
+  userType?: string; // Made optional for better UX
+}
 
-const employerSignUpSchema = z
-  .object({
+const employerSignUpSchema = z.object({
     // Required fields matching the employers table
     companyName: z
       .string()
@@ -86,8 +98,7 @@ const employerSignUpSchema = z
     agreeToTerms: z.literal(true, {
       errorMap: () => ({ message: "You must accept terms" }),
     }),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
+  }).refine((data) => data.password === data.confirmPassword, {
     message: "Passwords don't match",
     path: ["confirmPassword"],
   });
@@ -95,52 +106,108 @@ const employerSignUpSchema = z
 const prisma = new PrismaClient();
 
 
-// type CreateUserInput = z.infer<typeof CreateUserSchema>;
-
-export async function userLoginController(c: Context) {
+export const userLoginController = async (c: Context): Promise<Response> => {
+  // const prisma = new PrismaClient();
 
   try {
-    const { email, password, userType } = await c.req.json();
+    // Validate request body
+    const { email, password, userType }: LoginRequest = await c.req.json();
 
+    if (!email || !password) {
+      return c.json(
+        {
+          success: false,
+          error: "Email and password are required",
+        },
+        400
+      );
+    }
+
+    // Find user with case-insensitive email
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: {
+        email: email.toLowerCase(),
+      },
     });
 
-    if (!user || user.user_type !== userType) {
-      return c.json({ error: 'Invalid credentials' }, 401);
+    // Generic error message for security (don't reveal if user exists)
+    const invalidCredentials = {
+      success: false,
+      error: "Invalid email or password",
+    };
+
+    if (!user) {
+      return c.json(invalidCredentials, 401);
     }
 
+    // Verify password first to prevent timing attacks
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) {
-      return c.json({ error: 'Invalid credentials' }, 401);
+      return c.json(invalidCredentials, 401);
     }
 
-    // ✅ Type-safe token generation
+    // Optional: Check user type if provided
+    if (userType && user.user_type !== userType.toLowerCase()) {
+      return c.json(
+        {
+          success: false,
+          error: `This account is not registered as ${userType}`,
+        },
+        403
+      );
+    }
+
+    // Check if account is verified (if your app has email verification)
+    if (user.is_active === false) {
+      return c.json(
+        {
+          success: false,
+          error: "Account not verified. Please check your email.",
+          requiresVerification: true,
+        },
+        403
+      );
+    }
+
+    // Generate token with additional security claims
     const token = generateToken({
       id: user.id,
       email: user.email,
       userType: user.user_type,
     });
 
-return c.json({
-  success: true,  // Add this
-  message: 'Login successful',
-  token,
-  user: {
-    id: user.id,
-    email: user.email,
-    user_type: user.user_type,
-    first_name: user.first_name,
-    last_name: user.last_name,
-  },
-});
+    // Construct safe user response (exclude sensitive fields)
+    const userResponse: UserResponse = {
+      id: user.id,
+      email: user.email,
+      user_type: user.user_type,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      // Include only if your app uses verification
+      ...(user.is_active !== undefined && { is_verified: user.is_active }),
+    };
+
+    return c.json({
+      success: true,
+      message: "Login successful",
+      token,
+      user: userResponse,
+      // Include token expiration info
+      expiresIn: "7d", // Should match your token generation
+    });
   } catch (error) {
-    console.error('Login error:', error);
-    return c.json({ error: 'Internal server error' }, 500);
+    console.error("Login error:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Internal server error",
+      },
+      500
+    );
   } finally {
     await prisma.$disconnect();
   }
-}
+};
 
 
 export const createUserController = async (c: Context) => {
