@@ -5,8 +5,7 @@ import { PrismaClient, Prisma } from "@prisma/client";
 import { checkRateLimit } from "../../utils/rate-limit.js";
 import { generateToken, verifyPassword } from "../../utils/auth.js"; // Assuming you have an auth utility for token generation
 import crypto from "crypto";
-// import zxcvbn from "zxcvbn";
-// import { HTTPException } from "hono/http-exception";
+import { employerSignUpSchema } from "../../shared/shared-schema.js"; // Import your shared schema
 
 // User creation schema
 const CreateUserSchema = z.object({
@@ -32,6 +31,8 @@ const CreateUserSchema = z.object({
     .regex(/^\+?[0-9\s-]+$/)
     .optional(),
 });
+
+
 
 // Initialize Prisma client once (recommended to put this in a separate file)
 const prisma = new PrismaClient();
@@ -72,77 +73,6 @@ const handleError = (c: Context, error: unknown) => {
       : undefined
   }, 500);
 };
-
-const employerSignUpSchema = z
-  .object({
-    // Required fields matching the employers table
-    companyName: z
-      .string()
-      .min(1, "Company name is required")
-      .max(100, "Company name too long"),
-
-    contactPerson: z
-      .string()
-      .min(1, "Contact person is required")
-      .max(100, "Name too long"),
-
-    email: z.string().email("Invalid email format").max(100, "Email too long"),
-
-    phone: z
-      .string()
-      .min(10, "Phone must be at least 10 digits")
-      .max(15, "Phone number too long"),
-
-    // address → company_description in DB
-    address: z
-      .string()
-      .min(5, "Address too short (min 5 chars)")
-      .max(500, "Address too long (max 500 chars)"),
-
-    industry: z
-      .string()
-      .min(1, "Industry is required")
-      .max(100, "Industry name too long"),
-
-    // Password fields (not stored in employers table but in users table)
-    password: z
-      .string()
-      .min(8, "Password must be 8+ characters")
-      .regex(/[A-Z]/, "Must contain uppercase letter")
-      .regex(/[a-z]/, "Must contain lowercase letter")
-      .regex(/[0-9]/, "Must contain number"),
-
-    confirmPassword: z.string(),
-
-    // Optional fields with defaults from DB schema
-    companySize: z
-      .enum(["1-10", "11-50", "51-200", "201-500", "501+"])
-      .default("1-10"),
-
-    websiteUrl: z
-      .string()
-      .url("Invalid website URL")
-      .max(200, "URL too long")
-      .optional()
-      .or(z.literal("")),
-
-    foundedYear: z
-      .number()
-      .min(1900, "Year must be ≥ 1900")
-      .max(new Date().getFullYear(), "Can't be in future")
-      .default(new Date().getFullYear()),
-
-    // Required for form submission
-    agreeToTerms: z.literal(true, {
-      errorMap: () => ({ message: "You must accept terms" }),
-    }),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match",
-    path: ["confirmPassword"],
-  });
-
-
 // Define proper TypeScript interfaces
 interface LoginRequest {
   email: string;
@@ -427,111 +357,62 @@ export const createUserController = async (c: Context) => {
 };
 
 export const createEmployerController = async (c: Context) => {
-  console.log('createEmployerController called');
-  
   try {
     const rawData = await c.req.json();
+    console.log("Received data:", JSON.stringify(rawData, null, 2));
     
-    // Map and flatten the request body to match the Zod schema
-    const mergedData = {
-      companyName: rawData.employer?.companyName,
-      contactPerson: `${rawData.user?.firstName} ${rawData.user?.lastName}`.trim(),
-      email: rawData.user?.email,
-      phone: rawData.user?.phone,
-      address: rawData.employer?.address || rawData.employer?.companyAddress, // Fixed: use address field, not companyDescription
-      industry: rawData.employer?.industry,
-      password: rawData.user?.password,
-      confirmPassword: rawData.user?.confirmPassword,
-      companySize: rawData.employer?.companySize,
-      websiteUrl: rawData.employer?.websiteUrl,
-      foundedYear: rawData.employer?.foundedYear,
-      agreeToTerms: rawData.agreeToTerms
-    };
-    
-    // 1. Validate with Zod schema
-    const validation = employerSignUpSchema.safeParse(mergedData);
-    
+    const validation = employerSignUpSchema.safeParse(rawData);
+
     if (!validation.success) {
-      return c.json({
-        success: false,
-        errors: validation.error.flatten()
-      }, 400);
+      console.error("Validation failed:", validation.error.flatten());
+      return c.json({ success: false, errors: validation.error.flatten() }, 400);
     }
-    
-    const {
-      email,
-      password,
-      companyName,
-      contactPerson,
-      address,
-      industry,
-      companySize,
-      websiteUrl,
-      foundedYear
-    } = validation.data;
-    
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
-    
-    if (existingUser) {
-      return c.json({
-        success: false,
-        error: "Email already in use"
-      }, 409);
-    }
-    
-    // Create user and employer in transaction
+
+    const { user, employer } = validation.data;
+
     const result = await prisma.$transaction(async (tx) => {
-      // Create user
       const userRecord = await tx.user.create({
         data: {
-          email: email.toLowerCase(),
-          username: email.split('@')[0],
-          password_hash: await hash(password, 12),
-          first_name: rawData.user?.firstName || null,
-          last_name: rawData.user?.lastName || null,
-          phone_number: rawData.user?.phone || null,
+          email: user.email.toLowerCase(),
+          username: user.username,
+          password_hash: await hash(user.password, 12),
+          first_name: user.firstName,      // ✅ Map camelCase to snake_case
+          last_name: user.lastName,        // ✅ Map camelCase to snake_case
+          phone_number: user.phone,  // ✅ Map camelCase to snake_case
           user_type: "employer",
           is_active: true,
-          created_at: new Date(),
-        }
+        },
       });
-      
-      // Create employer
+
       const employerRecord = await tx.employer.create({
         data: {
           user_id: userRecord.id,
-          company_name: companyName,
-          company_description: address || null, // Using address for company_description
-          industry,
-          company_size: companySize,
-          website_url: websiteUrl || null,
-          founded_year: foundedYear || null,
-          logo_path: null,
-          contact_person: contactPerson, // Fixed: uncommented this field
-        }
+          company_name: employer.companyName,
+          contact_person: employer.contactPerson,
+          industry: employer.industry,
+          company_size: employer.companySize,
+          website_url: employer.websiteUrl,
+          founded_year: employer.foundedYear,
+          // Add address if your Employer model has this field
+          address: employer.address,
+        },
       });
-      
+
       return { userRecord, employerRecord };
     });
-    
-    return c.json({
-      success: true,
-      data: {
-        user: {
-          id: result.userRecord.id,
-          email: result.userRecord.email
+
+    return c.json(
+      {
+        success: true,
+        data: {
+          userId: result.userRecord.id,
+          employerId: result.employerRecord.id,
         },
-        employer: {
-          id: result.employerRecord.id,
-          companyName: result.employerRecord.company_name
-        }
-      }
-    }, 201);
-    
+      },
+      201
+    );
   } catch (error) {
+    console.error("Server Error:", error);
     return handleError(c, error);
   }
 };

@@ -18,6 +18,7 @@ model Employer {
   logo_path           String?
   founded_year        Int?
   contact_person      String
+  address             String?
 
   job_listings        JobListing[]     @relation("EmployerJobListings")
   applications        JobApplication[] @relation("EmployerToApplications")

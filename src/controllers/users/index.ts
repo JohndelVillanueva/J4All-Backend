@@ -373,155 +373,155 @@ export const createUserController = async (c: Context) => {
   }
 };
 
-export const createEmployerController = async (c: Context) => {
-  console.log('createEmployerController called');
+// export const createEmployerController = async (c: Context) => {
+//   console.log('createEmployerController called');
 
-  try {
-    const rawData = await c.req.json();
+//   try {
+//     const rawData = await c.req.json();
 
-    // Flatten and map input data
-    const mergedData = {
-      companyName: rawData.employer?.companyName,
-      contactPerson: `${rawData.user?.firstName || ""} ${rawData.user?.lastName || ""}`.trim(),
-      email: rawData.user?.email,
-      phone: rawData.user?.phone,
-      address: rawData.employer?.address || rawData.employer?.companyAddress,
-      industry: rawData.employer?.industry,
-      password: rawData.user?.password,
-      confirmPassword: rawData.user?.confirmPassword,
-      companySize: rawData.employer?.companySize,
-      websiteUrl: rawData.employer?.websiteUrl,
-      foundedYear: rawData.employer?.foundedYear,
-      agreeToTerms: rawData.agreeToTerms,
-    };
+//     // Flatten and map input data
+//     const mergedData = {
+//       companyName: rawData.employer?.companyName,
+//       contactPerson: `${rawData.user?.firstName || ""} ${rawData.user?.lastName || ""}`.trim(),
+//       email: rawData.user?.email,
+//       phone: rawData.user?.phone,
+//       address: rawData.employer?.address || rawData.employer?.companyAddress,
+//       industry: rawData.employer?.industry,
+//       password: rawData.user?.password,
+//       confirmPassword: rawData.user?.confirmPassword,
+//       companySize: rawData.employer?.companySize,
+//       websiteUrl: rawData.employer?.websiteUrl,
+//       foundedYear: rawData.employer?.foundedYear,
+//       agreeToTerms: rawData.agreeToTerms,
+//     };
 
-    // 1. Validate input
-    const validation = employerSignUpSchema.safeParse(mergedData);
-    if (!validation.success) {
-      return c.json({
-        success: false,
-        errors: validation.error.flatten(),
-      }, 400);
-    }
+//     // 1. Validate input
+//     const validation = employerSignUpSchema.safeParse(mergedData);
+//     if (!validation.success) {
+//       return c.json({
+//         success: false,
+//         errors: validation.error.flatten(),
+//       }, 400);
+//     }
 
-    const {
-      email,
-      password,
-      companyName,
-      contactPerson,
-      address,
-      industry,
-      companySize,
-      websiteUrl,
-      foundedYear,
-    } = validation.data;
+//     const {
+//       email,
+//       password,
+//       companyName,
+//       contactPerson,
+//       address,
+//       industry,
+//       companySize,
+//       websiteUrl,
+//       foundedYear,
+//     } = validation.data;
 
-    // 2. Check for duplicate user by email
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-    });
+//     // 2. Check for duplicate user by email
+//     const existingUser = await prisma.user.findUnique({
+//       where: { email: email.toLowerCase() },
+//     });
 
-    if (existingUser) {
-      return c.json({
-        success: false,
-        error: 'Email already in use',
-      }, 409);
-    }
+//     if (existingUser) {
+//       return c.json({
+//         success: false,
+//         error: 'Email already in use',
+//       }, 409);
+//     }
 
-  // 3. Create user and employer inside a transaction
-  const result = await prisma.$transaction(async (tx) => {
-    const baseUsername = email.split('@')[0];
-    let finalUsername = baseUsername;
-    let suffix = 1;
-    const MAX_ATTEMPTS = 10;
-    let attempts = 0;
-    let usernameExists = true;
+//   // 3. Create user and employer inside a transaction
+//   const result = await prisma.$transaction(async (tx) => {
+//     const baseUsername = email.split('@')[0];
+//     let finalUsername = baseUsername;
+//     let suffix = 1;
+//     const MAX_ATTEMPTS = 10;
+//     let attempts = 0;
+//     let usernameExists = true;
 
-    // Validate base username
-    if (baseUsername.length < 3) {
-      throw new Error('Username must be at least 3 characters');
-    }
+//     // Validate base username
+//     if (baseUsername.length < 3) {
+//       throw new Error('Username must be at least 3 characters');
+//     }
 
-    // Generate unique username
-    while (usernameExists && attempts < MAX_ATTEMPTS) {
-      const existingUser = await tx.user.findUnique({
-        where: { 
-          username: finalUsername 
-        },
-        select: {
-          id: true
-        }
-      });
+//     // Generate unique username
+//     while (usernameExists && attempts < MAX_ATTEMPTS) {
+//       const existingUser = await tx.user.findUnique({
+//         where: { 
+//           username: finalUsername 
+//         },
+//         select: {
+//           id: true
+//         }
+//       });
 
-      if (!existingUser) {
-        usernameExists = false;
-      } else {
-        finalUsername = `${baseUsername}${suffix}`;
-        suffix++;
-        attempts++;
-      }
-    }
+//       if (!existingUser) {
+//         usernameExists = false;
+//       } else {
+//         finalUsername = `${baseUsername}${suffix}`;
+//         suffix++;
+//         attempts++;
+//       }
+//     }
 
-    if (attempts >= MAX_ATTEMPTS) {
-      throw new Error('Could not generate a unique username');
-    }
+//     if (attempts >= MAX_ATTEMPTS) {
+//       throw new Error('Could not generate a unique username');
+//     }
 
-    // Create user with guaranteed unique username
-    const userRecord = await tx.user.create({
-      data: {
-        email: email.toLowerCase(),
-        username: finalUsername,
-        password_hash: await bcrypt.hash(password, 12),
-        first_name: rawData.user?.firstName || null,
-        last_name: rawData.user?.lastName || null,
-        phone_number: rawData.user?.phone || null,
-        user_type: UserType.employer,
-        is_active: true,
-        created_at: new Date(),
-      },
-    });
+//     // Create user with guaranteed unique username
+//     const userRecord = await tx.user.create({
+//       data: {
+//         email: email.toLowerCase(),
+//         username: finalUsername,
+//         password_hash: await bcrypt.hash(password, 12),
+//         first_name: rawData.user?.firstName || null,
+//         last_name: rawData.user?.lastName || null,
+//         phone_number: rawData.user?.phone || null,
+//         user_type: UserType.employer,
+//         is_active: true,
+//         created_at: new Date(),
+//       },
+//     });
 
-    const employerRecord = await tx.employer.create({
-      data: {
-        user_id: userRecord.id,
-        company_name: companyName,
-        company_description: address || null,
-        industry,
-        company_size: companySize,
-        website_url: websiteUrl || null,
-        founded_year: foundedYear || null,
-        logo_path: null,
-        contact_person: contactPerson,
-      },
-    });
+//     const employerRecord = await tx.employer.create({
+//       data: {
+//         user_id: userRecord.id,
+//         company_name: companyName,
+//         company_description: address || null,
+//         industry,
+//         company_size: companySize,
+//         website_url: websiteUrl || null,
+//         founded_year: foundedYear || null,
+//         logo_path: null,
+//         contact_person: contactPerson,
+//       },
+//     });
 
-    return { userRecord, employerRecord };
-  });
+//     return { userRecord, employerRecord };
+//   });
 
-    // 4. Return success
-    return c.json({
-      success: true,
-      data: {
-        user: {
-          id: result.userRecord.id,
-          email: result.userRecord.email,
-          username: result.userRecord.username,
-        },
-        employer: {
-          id: result.employerRecord.id,
-          companyName: result.employerRecord.company_name,
-        },
-      },
-    }, 201);
-  } catch (error) {
-    console.error('Employer creation error:', error);
-    return c.json({
-      success: false,
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    }, 500);
-  }
-};
+//     // 4. Return success
+//     return c.json({
+//       success: true,
+//       data: {
+//         user: {
+//           id: result.userRecord.id,
+//           email: result.userRecord.email,
+//           username: result.userRecord.username,
+//         },
+//         employer: {
+//           id: result.employerRecord.id,
+//           companyName: result.employerRecord.company_name,
+//         },
+//       },
+//     }, 201);
+//   } catch (error) {
+//     console.error('Employer creation error:', error);
+//     return c.json({
+//       success: false,
+//       error: 'Internal server error',
+//       details: error instanceof Error ? error.message : 'Unknown error',
+//     }, 500);
+//   }
+// };
 
 
 export function getUserController(c: Context) {
