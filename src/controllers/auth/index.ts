@@ -360,7 +360,7 @@ export const createEmployerController = async (c: Context) => {
   try {
     const rawData = await c.req.json();
     console.log("Received data:", JSON.stringify(rawData, null, 2));
-    
+
     const validation = employerSignUpSchema.safeParse(rawData);
 
     if (!validation.success) {
@@ -370,15 +370,34 @@ export const createEmployerController = async (c: Context) => {
 
     const { user, employer } = validation.data;
 
+    // ✅ Check for existing username
+    const existingUserByUsername = await prisma.user.findUnique({
+      where: { username: user.username },
+    });
+
+    if (existingUserByUsername) {
+      return c.json({ message: "Username already taken" }, 400);
+    }
+
+    // ✅ Check for existing email
+    const existingUserByEmail = await prisma.user.findUnique({
+      where: { email: user.email.toLowerCase() },
+    });
+
+    if (existingUserByEmail) {
+      return c.json({ message: "Email already exists" }, 400);
+    }
+
+    // ✅ Proceed with transaction only if username and email are unique
     const result = await prisma.$transaction(async (tx) => {
       const userRecord = await tx.user.create({
         data: {
           email: user.email.toLowerCase(),
           username: user.username,
           password_hash: await hash(user.password, 12),
-          first_name: user.firstName,      // ✅ Map camelCase to snake_case
-          last_name: user.lastName,        // ✅ Map camelCase to snake_case
-          phone_number: user.phone,  // ✅ Map camelCase to snake_case
+          first_name: user.firstName,
+          last_name: user.lastName,
+          phone_number: user.phone,
           user_type: "employer",
           is_active: true,
         },
@@ -393,7 +412,6 @@ export const createEmployerController = async (c: Context) => {
           company_size: employer.companySize,
           website_url: employer.websiteUrl,
           founded_year: employer.foundedYear,
-          // Add address if your Employer model has this field
           address: employer.address,
         },
       });
