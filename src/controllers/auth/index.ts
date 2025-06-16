@@ -3,8 +3,10 @@ import bcrypt, { hash } from "bcryptjs";
 import { z } from "zod"; // For validation
 import { PrismaClient, Prisma } from "@prisma/client";
 import { checkRateLimit } from "../../utils/rate-limit.js";
-import { generateToken, verifyPassword } from "../../utils/auth.js"; // Assuming you have an auth utility for token generation
+import { generateToken, verifyPassword } from "../../utils/auth.js"; // Assuming you have an auth utility for token generation PASSWORD
 import crypto from "crypto";
+import { authMiddleware } from '../../utils/auth.js'; // Import your auth middleware for token verification
+// import generateToken from "../../utils/auth.js"; // Import your token generation function
 import { employerSignUpSchema } from "../../shared/shared-schema.js"; // Import your shared schema
 
 // User creation schema
@@ -86,6 +88,9 @@ interface UserResponse {
   user_type: string;
   first_name: string | null;
   last_name: string | null;
+  username?: string;
+  phone_number?: string | null;
+  created_at?: Date;
   is_active?: boolean;
 }
 
@@ -171,12 +176,18 @@ export const userLoginController = async (c: Context): Promise<Response> => {
     };
 
     return c.json({
-      success: true,
-      message: "Login successful",
-      token,
-      user: userResponse,
-      // Include token expiration info
-      expiresIn: "7d", // Should match your token generation
+  success: true,
+  message: "Login successful",
+  token,
+  user: {
+    id: user.id,
+    email: user.email,
+    user_type: user.user_type,
+    first_name: user.first_name, // Must be included
+    last_name: user.last_name,   // Must be included
+    // ... other necessary fields
+  },
+  expiresIn: "7d", // Should match your token generation
     });
   } catch (error) {
     console.error("Login error:", error);
@@ -432,5 +443,34 @@ export const createEmployerController = async (c: Context) => {
   } catch (error) {
     console.error("Server Error:", error);
     return handleError(c, error);
+  }
+};
+
+export const getUserById = async (c: Context) => {
+  try {
+    const userId = Number(c.req.param('id'));
+    const requestingUser = c.get('user'); // From middleware
+
+    // Optional: Verify user can access this data
+    if (requestingUser.id !== userId && requestingUser.user_type !== 'admin') {
+      return c.json({ error: "Unauthorized" }, 403);
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        user_type: true
+      }
+    });
+
+    if (!user) return c.json({ error: "User not found" }, 404);
+    return c.json(user);
+  } catch (error) {
+    console.error("Error:", error);
+    return c.json({ error: "Internal server error" }, 500);
   }
 };
