@@ -95,8 +95,6 @@ interface UserResponse {
 }
 
 export const userLoginController = async (c: Context): Promise<Response> => {
-  // const prisma = new PrismaClient();
-
   try {
     // Validate request body
     const { email, password, userType }: LoginRequest = await c.req.json();
@@ -164,30 +162,20 @@ export const userLoginController = async (c: Context): Promise<Response> => {
       userType: user.user_type,
     });
 
-    // Construct safe user response (exclude sensitive fields)
-    const userResponse: UserResponse = {
-      id: user.id,
-      email: user.email,
-      user_type: user.user_type,
-      first_name: user.first_name,
-      last_name: user.last_name,
-      // Include only if your app uses verification
-      ...(user.is_active !== undefined && { is_verified: user.is_active }),
-    };
-
+    // Return the exact user data structure expected by the frontend
     return c.json({
-  success: true,
-  message: "Login successful",
-  token,
-  user: {
-    id: user.id,
-    email: user.email,
-    user_type: user.user_type,
-    first_name: user.first_name, // Must be included
-    last_name: user.last_name,   // Must be included
-    // ... other necessary fields
-  },
-  expiresIn: "7d", // Should match your token generation
+      success: true,
+      message: "Login successful",
+      token,
+      user: {
+        id: user.id,
+        username: user.username || "", // Ensure this matches your User interface
+        email: user.email,
+        user_type: user.user_type,
+        first_name: user.first_name || "", // Must be included
+        last_name: user.last_name || "",   // Must be included
+      },
+      expiresIn: "7d", // Should match your token generation
     });
   } catch (error) {
     console.error("Login error:", error);
