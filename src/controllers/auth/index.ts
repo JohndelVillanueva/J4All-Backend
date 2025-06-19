@@ -96,100 +96,53 @@ interface UserResponse {
 
 export const userLoginController = async (c: Context): Promise<Response> => {
   try {
-    // Validate request body
-    const { email, password, userType }: LoginRequest = await c.req.json();
+    const { email, password } = await c.req.json();
 
+    // Validate input
     if (!email || !password) {
-      return c.json(
-        {
-          success: false,
-          error: "Email and password are required",
-        },
-        400
-      );
+      return c.json({ error: "Email and password required" }, 400);
     }
 
-    // Find user with case-insensitive email
-    const user = await prisma.user.findUnique({
-      where: {
-        email: email.toLowerCase(),
-      },
+    // Find user
+    const user = await prisma.user.findUnique({ 
+      where: { email: email.toLowerCase() } 
     });
+    if (!user) return c.json({ error: "Invalid credentials" }, 401);
 
-    // Generic error message for security (don't reveal if user exists)
-    const invalidCredentials = {
-      success: false,
-      error: "Invalid email or password",
-    };
-
-    if (!user) {
-      return c.json(invalidCredentials, 401);
-    }
-
-    // Verify password first to prevent timing attacks
+    // Verify password
     const isValid = await verifyPassword(password, user.password_hash);
-    if (!isValid) {
-      return c.json(invalidCredentials, 401);
+    if (!isValid) return c.json({ error: "Invalid credentials" }, 401);
+
+    // ✅ Update last_login (with error handling)
+    try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { last_login: new Date() },
+      });
+    } catch (updateError) {
+      console.error("Failed to update last_login:", updateError);
+      // Continue login even if update fails
     }
 
-    // Optional: Check user type if provided
-    if (userType && user.user_type !== userType.toLowerCase()) {
-      return c.json(
-        {
-          success: false,
-          error: `This account is not registered as ${userType}`,
-        },
-        403
-      );
-    }
+    // Generate token
+    const token = generateToken({ id: user.id, email: user.email });
 
-    // Check if account is verified (if your app has email verification)
-    if (user.is_active === false) {
-      return c.json(
-        {
-          success: false,
-          error: "Account not verified. Please check your email.",
-          requiresVerification: true,
-        },
-        403
-      );
-    }
-
-    // Generate token with additional security claims
-    const token = generateToken({
-      id: user.id,
-      email: user.email,
-      userType: user.user_type,
-    });
-
-    // Return the exact user data structure expected by the frontend
-    return c.json({
+    return c.json({ 
       success: true,
-      message: "Login successful",
       token,
       user: {
         id: user.id,
-        username: user.username || "", // Ensure this matches your User interface
         email: user.email,
-        user_type: user.user_type,
-        first_name: user.first_name || "", // Must be included
-        last_name: user.last_name || "",   // Must be included
+        last_login: new Date().toISOString(), // Confirm update in response
       },
-      expiresIn: "7d", // Should match your token generation
     });
+
   } catch (error) {
     console.error("Login error:", error);
-    return c.json(
-      {
-        success: false,
-        error: "Internal server error",
-      },
-      500
-    );
-  } finally {
-    await prisma.$disconnect();
+    return c.json({ error: "Server error" }, 500);
   }
 };
+
 
 export const createUserController = async (c: Context) => {
   // const prisma = new PrismaClient();

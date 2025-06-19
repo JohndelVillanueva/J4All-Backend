@@ -11,7 +11,7 @@ import { authMiddleware } from '../../utils/auth.js';
 const jobPosting = new Hono()
 
 .post('/createJob', authMiddleware, createJobPostingController)
-.get('/jobs', getJobPostingsController)
+.get('/getJoblisting', authMiddleware, getJobPostingsController)
 .put('/jobs/:id', updateJobPostingController)
 .get('/jobs/:id', getJobPostingController)
 .delete('/jobs/:id', deleteJobPostingController)

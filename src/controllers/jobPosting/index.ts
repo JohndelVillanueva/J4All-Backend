@@ -271,15 +271,29 @@ export const getJobPostingsController = async (c: Context): Promise<Response> =>
       },
       include: {
         required_skills: true,
+        _count: {
+          select: {
+            applications: true // This counts the number of applications
+          }
+        }
       },
       orderBy: {
         posted_date: 'desc',
       },
     });
 
+    // Transform the data to match frontend expectations
+    const transformedListings = jobListings.map(job => ({
+      ...job,
+      status: job.is_active ? 'active' : 'closed',
+      applicants: job._count.applications, // Use the count we just fetched
+      // Remove the _count field since we don't need it in the frontend
+      _count: undefined
+    }));
+
     return c.json({
       success: true,
-      data: jobListings,
+      data: transformedListings,
     });
   } catch (error) {
     console.error('Error fetching job postings:', error);

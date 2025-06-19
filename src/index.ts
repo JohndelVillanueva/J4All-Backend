@@ -22,6 +22,12 @@ app.use('*', async (c, next) => {
   console.log(`Response status: ${c.res.status}`);
 });
 
+app.use('*', async (c, next) => {
+  console.log(`[${new Date().toISOString()}] ${c.req.method} ${c.req.path}`);
+  await next();
+  console.log(`Response: ${c.res.status}`);
+});
+
 // Mount routes at root level since the proxy will handle the /api prefix
 routes.forEach((route) => {
   app.route('', route);
