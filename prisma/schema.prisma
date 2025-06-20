@@ -43,6 +43,12 @@ model JobApplication {
   @@map("job_applications")
 }
 
+enum WorkMode {
+  Onsite
+  Remote
+  Hybrid
+}
+
 model JobListing {
   id                Int              @id @default(autoincrement())
   employer_id       Int
@@ -53,6 +59,7 @@ model JobListing {
   job_type          String?
   salary_range_min  Float?
   salary_range_max  Float?
+  work_mode         WorkMode          @default(Onsite)
   posted_date       DateTime         @default(now())
   expiration_date   DateTime?
   is_active         Boolean          @default(true)
