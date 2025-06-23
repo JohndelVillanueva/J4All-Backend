@@ -266,14 +266,20 @@ export const getJobPostingsController = async (c: Context): Promise<Response> =>
     const employerId = c.get('employerId');
 
     const jobListings = await prisma.jobListing.findMany({
+      
       where: {
         employer_id: employerId,
       },
       include: {
         required_skills: true,
+        employer: {
+          select: {
+            company_name: true
+          }
+        },
         _count: {
           select: {
-            applications: true // This counts the number of applications
+            applications: true
           }
         }
       },
@@ -281,27 +287,33 @@ export const getJobPostingsController = async (c: Context): Promise<Response> =>
         posted_date: 'desc',
       },
     });
+    console.log('Raw DB data:', jobListings.map(j => ({id: j.id, work_mode: j.work_mode})));
 
-    // Transform the data to match frontend expectations
     const transformedListings = jobListings.map(job => ({
       ...job,
       status: job.is_active ? 'active' : 'closed',
-      applicants: job._count.applications, // Use the count we just fetched
-      // Remove the _count field since we don't need it in the frontend
-      _count: undefined
+      applicants: job._count.applications,
+      company_name: job.employer.company_name,
+      work_mode: job.work_mode, // This will be one of: 'Onsite', 'Remote', or 'Hybrid'
+      _count: undefined,
+      employer: undefined
     }));
+    console.log('Transformed data:', transformedListings.map(j => ({id: j.id, work_mode: j.work_mode})));
 
     return c.json({
       success: true,
       data: transformedListings,
     });
+    
   } catch (error) {
     console.error('Error fetching job postings:', error);
     return c.json({
       success: false,
       message: 'Failed to fetch job postings',
     }, 500);
+    
   }
+  
 };
 
 export const getJobPostingController = async (c: Context): Promise<Response> => {
