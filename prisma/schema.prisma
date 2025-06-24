@@ -47,6 +47,7 @@ enum WorkMode {
   Onsite
   Remote
   Hybrid
+  Unknown  
 }
 
 model JobListing {
@@ -59,7 +60,7 @@ model JobListing {
   job_type          String?
   salary_range_min  Float?
   salary_range_max  Float?
-  work_mode         WorkMode?        
+  work_mode         WorkMode         @default(Unknown)        
   posted_date       DateTime         @default(now())
   expiration_date   DateTime?
   is_active         Boolean          @default(true)

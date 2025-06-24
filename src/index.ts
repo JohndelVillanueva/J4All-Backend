@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { auth, jobPosting, routes } from './controllers/routes.js'
+import { auth, jobPosting, routes, skill } from './controllers/routes.js'
 
 const app = new Hono()
 
@@ -35,6 +35,9 @@ routes.forEach((route) => {
 
 auth.forEach((authRoute) => {
   app.route('', authRoute);
+});
+skill.forEach((skillRoutes) => {
+  app.route('', skillRoutes);
 });
 
 jobPosting.forEach((jobRoute) => {

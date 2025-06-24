@@ -1,17 +1,17 @@
 import { Hono } from 'hono';
 import {
   createJobPostingController,
-  getJobPostingsController,
   getJobPostingController,
   updateJobPostingController,
-  deleteJobPostingController
+  deleteJobPostingController,
+  getJobListingController
 } from './index.js';
 import { authMiddleware } from '../../utils/auth.js';
 
 const jobPosting = new Hono()
 
 .post('/createJob', authMiddleware, createJobPostingController)
-.get('/getJoblisting', authMiddleware, getJobPostingsController)
+.get('/getJoblisting', authMiddleware, getJobListingController)
 .put('/jobs/:id', updateJobPostingController)
 .get('/jobs/:id', getJobPostingController)
 .delete('/jobs/:id', deleteJobPostingController)
