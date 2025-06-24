@@ -549,6 +549,84 @@ export const getJobListingController = async (
   }
 };
 
+export const getAllJobListingController = async (
+  c: Context
+): Promise<Response> => {
+  try {
+    // Get all job listings without authentication requirements
+    const jobListings = await prisma.jobListing.findMany({
+      where: { 
+        is_active: true,
+        expiration_date: {
+          gte: new Date() // Only show jobs that haven't expired
+        }
+      },
+      include: {
+        required_skills: {
+          include: {
+            skill: true,
+          },
+        },
+        employer: {
+          select: {
+            company_name: true,
+            company_description: true,
+            logo_path: true
+            // If you want to include user info, make sure to add a relation in your Prisma schema and update this accordingly.
+          }
+        },
+        // Include applicant count if needed
+        _count: {
+          select: {
+            applications: true
+          }
+        }
+      },
+      orderBy: {
+        posted_date: "desc",
+      },
+    });
+
+    // Format the response
+    const formattedJobs = jobListings.map((job) => ({
+      id: job.id,
+      job_title: job.job_title,
+      job_description: job.job_description,
+      job_requirements: job.job_requirements,
+      job_location: job.job_location,
+      job_type: job.job_type,
+      work_mode: job.work_mode,
+      salary_range_min: job.salary_range_min,
+      salary_range_max: job.salary_range_max,
+      expiration_date: job.expiration_date?.toISOString() || null,
+      posted_date: job.posted_date.toISOString(),
+      status: job.is_active ? "active" : "closed",
+      applicants: job._count.applications,
+      company: {
+        name: job.employer.company_name,
+        description: job.employer.company_description,
+        logo: job.employer.logo_path,
+        // contact: { ... } // Remove or update this if you add a user relation in the future
+      },
+    }));
+
+    return c.json({
+      success: true,
+      data: formattedJobs,
+    });
+  } catch (error) {
+    console.error("Error fetching job listings:", error);
+    return c.json(
+      {
+        success: false,
+        message: "Failed to fetch job listings",
+        code: "FETCH_ERROR",
+      },
+      500
+    );
+  }
+};
+
 export const getJobPostingController = async (
   c: Context
 ): Promise<Response> => {
