@@ -3,11 +3,14 @@ import bcrypt, { hash } from "bcryptjs";
 import { z } from "zod"; // For validation
 import { PrismaClient, Prisma } from "@prisma/client";
 import { checkRateLimit } from "../../utils/rate-limit.js";
-import { generateToken, verifyPassword } from "../../utils/auth.js"; // Assuming you have an auth utility for token generation PASSWORD
-import crypto from "crypto";
-import { authMiddleware } from '../../utils/auth.js'; // Import your auth middleware for token verification
-// import generateToken from "../../utils/auth.js"; // Import your token generation function
-import { employerSignUpSchema } from "../../shared/shared-schema.js"; // Import your shared schema
+import { generateToken, verifyPassword } from "../../utils/auth.js";
+import { authMiddleware } from '../../utils/auth.js';
+import { employerSignUpSchema } from "../../shared/shared-schema.js";
+
+import { writeFile } from "fs/promises";     // to save the file
+import fs from "fs";                        // to use fs.promises.mkdir
+import path from "path";                    // to resolve file path
+import crypto from "crypto";                // to generate unique file names
 
 // User creation schema
 const CreateUserSchema = z.object({
@@ -310,37 +313,71 @@ export const createUserController = async (c: Context) => {
 
 export const createEmployerController = async (c: Context) => {
   try {
-    const rawData = await c.req.json();
-    console.log("Received data:", JSON.stringify(rawData, null, 2));
+    const formData = await c.req.formData();
 
-    const validation = employerSignUpSchema.safeParse(rawData);
+    // Parse the main data payload (now expecting 'data' field with JSON string)
+    const payload = JSON.parse(formData.get('data') as string);
+    const { user, employer, confirmPassword, agreeToTerms } = payload;
+
+    // Validate input with the complete schema
+    const validation = employerSignUpSchema.safeParse({
+      user,
+      employer,
+      confirmPassword,
+      agreeToTerms
+    });
 
     if (!validation.success) {
       console.error("Validation failed:", validation.error.flatten());
-      return c.json({ success: false, errors: validation.error.flatten() }, 400);
+      return c.json({ 
+        success: false, 
+        errors: validation.error.flatten() 
+      }, 400);
     }
 
-    const { user, employer } = validation.data;
-
-    // ✅ Check for existing username
-    const existingUserByUsername = await prisma.user.findUnique({
-      where: { username: user.username },
+    // Check for existing username/email
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: user.username },
+          { email: user.email.toLowerCase() }
+        ],
+      },
     });
 
-    if (existingUserByUsername) {
-      return c.json({ message: "Username already taken" }, 400);
+    if (existingUser) {
+      return c.json(
+        { 
+          message: existingUser.email === user.email 
+            ? "Email already exists" 
+            : "Username already taken" 
+        },
+        400
+      );
     }
 
-    // ✅ Check for existing email
-    const existingUserByEmail = await prisma.user.findUnique({
-      where: { email: user.email.toLowerCase() },
-    });
+    // Handle file upload (now using 'logo' field instead of 'logo_path')
+    let logoPath: string | null = null;
+    const logoFile = formData.get('logo') as File | null;
 
-    if (existingUserByEmail) {
-      return c.json({ message: "Email already exists" }, 400);
+    if (logoFile && logoFile.size > 0) {
+      const buffer = await logoFile.arrayBuffer();
+      const fileBytes = Buffer.from(buffer);
+      const fileExt = path.extname(logoFile.name);
+      const fileName = `${crypto.randomUUID()}${fileExt}`;
+      const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+      
+      // Ensure upload directory exists
+      await fs.promises.mkdir(uploadDir, { recursive: true });
+      
+      const filePath = path.join(uploadDir, fileName);
+      await fs.promises.writeFile(filePath, fileBytes);
+      
+      // Store relative path from public directory
+      logoPath = `/uploads/${fileName}`;
     }
 
-    // ✅ Proceed with transaction only if username and email are unique
+    // Transaction: create user & employer
     const result = await prisma.$transaction(async (tx) => {
       const userRecord = await tx.user.create({
         data: {
@@ -365,6 +402,7 @@ export const createEmployerController = async (c: Context) => {
           website_url: employer.websiteUrl,
           founded_year: employer.foundedYear,
           address: employer.address,
+          logo_path: logoPath,
         },
       });
 
