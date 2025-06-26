@@ -2,6 +2,9 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { auth, jobPosting, routes, skill } from './controllers/routes.js'
+import { serveStatic } from 'hono/serve-static';
+import { promises as fs } from 'fs'
+import path from 'path'
 
 const app = new Hono()
 
@@ -27,6 +30,21 @@ app.use('*', async (c, next) => {
   await next();
   console.log(`Response: ${c.res.status}`);
 });
+
+
+
+app.use('/uploads/*', serveStatic({
+  root: './',
+  rewriteRequestPath: (path) => path.replace(/^\/uploads/, '/backend/public/uploads'),
+  getContent: async (filePath) => {
+    const filename = filePath.replace(/^\/+/, '')
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png)$/i.test(filename)) {
+      return null // Reject malformed filenames
+    }
+    const absPath = path.join('./backend/public/uploads', filename)
+    return await fs.readFile(absPath)
+  }
+}))
 
 // Mount routes at root level since the proxy will handle the /api prefix
 routes.forEach((route) => {
