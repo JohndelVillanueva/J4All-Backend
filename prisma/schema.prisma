@@ -103,6 +103,21 @@ model JobSeeker {
   @@map("job_seekers")
 }
 
+model Notification {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  title      String
+  message    String
+  type       String
+  is_read    Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  user       User     @relation(name: "UserNotifications", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
 model JobSeekerSkill {
   id                  Int       @id @default(autoincrement())
   seeker_id           Int
@@ -159,6 +174,7 @@ model User {
   is_active     Boolean   @default(true)
 
   verificationTokens VerificationToken[]
+  notifications      Notification[] @relation("UserNotifications")
 
   @@map("users")
 }
