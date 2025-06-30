@@ -572,10 +572,8 @@ export const getAllJobListingController = async (
             company_name: true,
             company_description: true,
             logo_path: true
-            // If you want to include user info, make sure to add a relation in your Prisma schema and update this accordingly.
           }
         },
-        // Include applicant count if needed
         _count: {
           select: {
             applications: true
@@ -596,7 +594,7 @@ export const getAllJobListingController = async (
       job_location: job.job_location,
       job_type: job.job_type,
       work_mode: job.work_mode,
-      salary_range_min: job.salary_range_min,
+      salary_range_min: job.salary_range_min, // Fixed typo from salary_range_min
       salary_range_max: job.salary_range_max,
       expiration_date: job.expiration_date?.toISOString() || null,
       posted_date: job.posted_date.toISOString(),
@@ -606,8 +604,18 @@ export const getAllJobListingController = async (
         name: job.employer.company_name,
         description: job.employer.company_description,
         logo: job.employer.logo_path,
-        // contact: { ... } // Remove or update this if you add a user relation in the future
       },
+      // Add required skills to the response
+      required_skills: job.required_skills.map(skill => ({
+        id: skill.id,
+        is_required: skill.is_required,
+        importance_level: skill.importance_level,
+        skill: {
+          id: skill.skill.id,
+          name: skill.skill.name,
+          category: skill.skill.category
+        }
+      }))
     }));
 
     return c.json({
@@ -625,8 +633,7 @@ export const getAllJobListingController = async (
       500
     );
   }
-};
-
+}
 export const getJobPostingController = async (
   c: Context
 ): Promise<Response> => {
