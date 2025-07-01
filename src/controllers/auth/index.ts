@@ -136,6 +136,7 @@ export const userLoginController = async (c: Context): Promise<Response> => {
       user: {
         id: user.id,
         email: user.email,
+        user_type: user.user_type,
         last_login: new Date().toISOString(), // Confirm update in response
       },
     });
