@@ -171,7 +171,7 @@ export const userLoginController = async (c: Context): Promise<Response> => {
 
     // Generate token with additional security claims
     const token = generateToken({
-      id: user.id,
+      userId: user.id,
       email: user.email,
       userType: user.user_type,
     });
@@ -292,10 +292,10 @@ export const createUserController = async (c: Context) => {
 
         console.log(`User creation attempt: ${normalizedEmail}`);
         const createdUser = await tx.user.create({
-      data: {
+          data: {
             username: userData.username,
             email: normalizedEmail,
-        password_hash: hashedPassword,
+            password_hash: hashedPassword,
             user_type: userData.user_type,
             first_name: userData.first_name,
             last_name: userData.last_name,
@@ -303,6 +303,15 @@ export const createUserController = async (c: Context) => {
           },
         });
         console.log(`User created successfully: ${createdUser.id}`);
+
+        // Create JobSeeker profile for job-seeking users
+        if (["pwd", "indigenous", "general"].includes(createdUser.user_type)) {
+          await tx.jobSeeker.create({
+            data: { user_id: createdUser.id }
+          });
+          console.log(`JobSeeker profile created for user ${createdUser.id}`);
+        }
+
         return createdUser;
       }
     );

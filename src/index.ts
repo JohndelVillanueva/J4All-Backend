@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { auth, jobPosting, routes, skill } from './controllers/routes.js'
+import { auth, jobPosting, routes, skill, applicant } from './controllers/routes.js'
 import { serveStatic } from 'hono/serve-static';
 import { promises as fs } from 'fs'
 import path from 'path'
@@ -60,6 +60,10 @@ skill.forEach((skillRoutes) => {
 
 jobPosting.forEach((jobRoute) => {
   app.route('', jobRoute);
+});
+
+applicant.forEach((applicantRoute) => {
+  app.route('', applicantRoute);
 });
 
 // Add a test route

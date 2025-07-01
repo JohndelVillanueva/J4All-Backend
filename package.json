@@ -19,6 +19,7 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/lodash": "^4.17.18",
+    "@types/multer": "^1.4.13",
     "@types/node": "^20.11.17",
     "@types/zxcvbn": "^4.4.5",
     "prisma": "^6.8.1",

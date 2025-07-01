@@ -128,7 +128,7 @@ export const userLoginController = async (c: Context): Promise<Response> => {
     }
 
     // Generate token
-    const token = generateToken({ id: user.id, email: user.email });
+    const token = generateToken({ userId: user.id.toString(), email: user.email, userType: user.user_type });
 
     return c.json({ 
       success: true,

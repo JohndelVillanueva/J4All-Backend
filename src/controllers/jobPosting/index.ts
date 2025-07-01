@@ -553,12 +553,11 @@ export const getAllJobListingController = async (
   c: Context
 ): Promise<Response> => {
   try {
-    // Get all job listings without authentication requirements
     const jobListings = await prisma.jobListing.findMany({
       where: { 
         is_active: true,
         expiration_date: {
-          gte: new Date() // Only show jobs that haven't expired
+          gte: new Date()
         }
       },
       include: {
@@ -569,6 +568,7 @@ export const getAllJobListingController = async (
         },
         employer: {
           select: {
+            id: true,
             company_name: true,
             company_description: true,
             logo_path: true
@@ -585,38 +585,57 @@ export const getAllJobListingController = async (
       },
     });
 
-    // Format the response
-    const formattedJobs = jobListings.map((job) => ({
-      id: job.id,
-      job_title: job.job_title,
-      job_description: job.job_description,
-      job_requirements: job.job_requirements,
-      job_location: job.job_location,
-      job_type: job.job_type,
-      work_mode: job.work_mode,
-      salary_range_min: job.salary_range_min, // Fixed typo from salary_range_min
-      salary_range_max: job.salary_range_max,
-      expiration_date: job.expiration_date?.toISOString() || null,
-      posted_date: job.posted_date.toISOString(),
-      status: job.is_active ? "active" : "closed",
-      applicants: job._count.applications,
-      company: {
+    // Format the response with normalized company data
+    const formattedJobs = jobListings.map((job) => {
+      // Ensure employer data exists and is properly structured
+      const companyData = job.employer ? {
+        id: job.employer.id,
         name: job.employer.company_name,
         description: job.employer.company_description,
-        logo: job.employer.logo_path,
-      },
-      // Add required skills to the response
-      required_skills: job.required_skills.map(skill => ({
-        id: skill.id,
-        is_required: skill.is_required,
-        importance_level: skill.importance_level,
-        skill: {
-          id: skill.skill.id,
-          name: skill.skill.name,
-          category: skill.skill.category
-        }
-      }))
-    }));
+        logo: job.employer.logo_path
+      } : {
+        id: 0, // Fallback ID
+        name: "Unknown Employer",
+        description: null,
+        logo: null
+      };
+
+      return {
+        id: job.id,
+        job_title: job.job_title,
+        job_description: job.job_description,
+        job_requirements: job.job_requirements,
+        job_location: job.job_location,
+        job_type: job.job_type,
+        work_mode: job.work_mode,
+        salary_range_min: job.salary_range_min,
+        salary_range_max: job.salary_range_max,
+        expiration_date: job.expiration_date?.toISOString() || null,
+        posted_date: job.posted_date.toISOString(),
+        status: job.is_active ? "active" : "closed",
+        applicants: job._count.applications,
+        employer_id: job.employer?.id || 0, // Fallback to 0 if missing
+        company: companyData,
+        required_skills: job.required_skills.map(skill => ({
+          id: skill.id,
+          is_required: skill.is_required,
+          importance_level: skill.importance_level,
+          skill: {
+            id: skill.skill.id,
+            name: skill.skill.name,
+            category: skill.skill.category
+          }
+        }))
+      };
+    })
+    // Filter out jobs with employer_id 0 (no valid employer)
+    .filter(job => Number(job.employer_id) !== 0);
+
+    // Debug log to verify data structure
+    console.log('Job listings formatted:', {
+      count: formattedJobs.length,
+      sample: formattedJobs[0] // Log first job for verification
+    });
 
     return c.json({
       success: true,
@@ -633,7 +652,8 @@ export const getAllJobListingController = async (
       500
     );
   }
-}
+};
+
 export const getJobPostingController = async (
   c: Context
 ): Promise<Response> => {
