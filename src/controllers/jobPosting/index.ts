@@ -571,7 +571,8 @@ export const getAllJobListingController = async (
             id: true,
             company_name: true,
             company_description: true,
-            logo_path: true
+            logo_path: true,
+            user_id: true
           }
         },
         _count: {
@@ -584,9 +585,20 @@ export const getAllJobListingController = async (
         posted_date: "desc",
       },
     });
+    
+
+    // Manual user lookup for employer
+    const employerUserIds = Array.from(new Set(jobListings.map(j => j.employer?.user_id).filter(Boolean)));
+    const employerUsers = await prisma.user.findMany({
+      where: { id: { in: employerUserIds } },
+      select: { id: true, first_name: true, last_name: true }
+    });
+    const employerUserMap = new Map(employerUsers.map(u => [u.id, u]));
+    
 
     // Format the response with normalized company data
     const formattedJobs = jobListings.map((job) => {
+      
       // Ensure employer data exists and is properly structured
       const companyData = job.employer ? {
         id: job.employer.id,
@@ -599,7 +611,8 @@ export const getAllJobListingController = async (
         description: null,
         logo: null
       };
-
+      
+      const employerUser = job.employer?.user_id ? employerUserMap.get(job.employer.user_id) : null;
       return {
         id: job.id,
         job_title: job.job_title,
@@ -625,11 +638,17 @@ export const getAllJobListingController = async (
             name: skill.skill.name,
             category: skill.skill.category
           }
-        }))
+        })),
+        hrFirstName: employerUser?.first_name || '',
+        hrLastName: employerUser?.last_name || '',
+        
       };
+      
     })
+    
     // Filter out jobs with employer_id 0 (no valid employer)
     .filter(job => Number(job.employer_id) !== 0);
+    console.log('Formatted jobs sample:', formattedJobs[0]);
 
     // Debug log to verify data structure
     console.log('Job listings formatted:', {

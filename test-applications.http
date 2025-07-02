@@ -1,0 +1,14 @@
+### Test Get User Applications
+GET http://localhost:3111/applications
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+Content-Type: application/json
+
+### Test Get User Applications with Status Filter
+GET http://localhost:3111/applications?status=pending
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+Content-Type: application/json
+
+### Test Get User Applications with Pagination
+GET http://localhost:3111/applications?page=1&limit=5
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+Content-Type: application/json 

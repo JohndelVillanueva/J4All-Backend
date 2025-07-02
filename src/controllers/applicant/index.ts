@@ -184,210 +184,767 @@ export const applyForJobController = async (c: Context): Promise<Response> => {
     }, 500);
   }
 };
+// Get applications for logged-in user
+export const getUserApplicationsController = async (c: Context): Promise<Response> => {
+  try {
+    console.log('[DEBUG] Starting to fetch user applications');
 
-// Get applicant's applications
-// export const getMyApplicationsController = async (c: Context): Promise<Response> => {
-//   try {
-//     const applicantId = c.get('applicantId');
-//     const { status, page = '1', limit = '10' } = c.req.query();
+    // Get and verify token
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('[ERROR] Missing or invalid Authorization header');
+      return c.json({ 
+        success: false, 
+        error: "Missing or invalid authorization" 
+      }, 401);
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const verifiedToken = await verifyToken(token);
+    
+    if (!verifiedToken || !verifiedToken.userId) {
+      console.error('[ERROR] Invalid or expired token');
+      return c.json({ 
+        success: false, 
+        error: "Invalid authorization token" 
+      }, 401);
+    }
 
-//     const pageNumber = parseInt(page);
-//     const pageSize = parseInt(limit);
-//     const skip = (pageNumber - 1) * pageSize;
+    const userId = verifiedToken.userId;
 
-//     const whereClause = {
-//       applicant_id: applicantId,
-//       ...(status && { status })
-//     };
+    // Find the JobSeeker profile for this user
+    const jobSeeker = await prisma.jobSeeker.findUnique({
+      where: { user_id: userId }
+    });
+    
+    if (!jobSeeker) {
+      console.log('[INFO] No JobSeeker profile found for user:', userId);
+      return c.json({ 
+        success: true, 
+        data: [],
+        message: "No applications found - user is not a job seeker"
+      });
+    }
 
-//     const [applications, total] = await Promise.all([
-//       prisma.jobApplication.findMany({
-//         where: whereClause,
-//         skip,
-//         take: pageSize,
-//         orderBy: {
-//           applied_at: 'desc'
-//         },
-//         include: {
-//           job_listing: {
-//             select: {
-//               id: true,
-//               job_title: true,
-//               job_type: true,
-//               job_location: true,
-//               employer: {
-//                 select: {
-//                   name: true,
-//                   logo_url: true
-//                 }
-//               }
-//             }
-//           }
-//         }
-//       }),
-//       prisma.jobApplication.count({
-//         where: whereClause
-//       })
-//     ]);
+    const seekerId = jobSeeker.id;
 
-//     return c.json({
-//       success: true,
-//       data: applications.map(app => ({
-//         id: app.id,
-//         status: app.status,
-//         applied_at: app.applied_at,
-//         job: {
-//           id: app.job_listing.id,
-//           title: app.job_listing.job_title,
-//           type: app.job_listing.job_type,
-//           location: app.job_listing.job_location,
-//           company: app.job_listing.employer.name,
-//           logo: app.job_listing.employer.logo_url
-//         }
-//       })),
-//       pagination: {
-//         current_page: pageNumber,
-//         total_pages: Math.ceil(total / pageSize),
-//         total_items: total,
-//         per_page: pageSize
-//       }
-//     });
-//   } catch (error) {
-//     console.error('Error fetching applications:', error);
-//     return c.json({
-//       success: false,
-//       message: 'Failed to fetch applications',
-//     }, 500);
-//   }
-// };
+    // Get query parameters for filtering
+    const { status, page = '1', limit = '10' } = c.req.query();
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
+    const skip = (pageNumber - 1) * pageSize;
 
-// // Get application details
-// export const getApplicationDetailsController = async (c: Context): Promise<Response> => {
-//   try {
-//     const applicantId = c.get('applicantId');
-//     const applicationId = parseInt(c.req.param('id'));
+    // Build where clause
+    const whereClause: any = {
+      seeker_id: seekerId
+    };
+    
+    if (status && status !== 'all') {
+      whereClause.status = status.toUpperCase();
+    }
 
-//     const application = await prisma.jobApplication.findFirst({
-//       where: {
-//         id: applicationId,
-//         applicant_id: applicantId
-//       },
-//       include: {
-//         job_listing: {
-//           select: {
-//             id: true,
-//             job_title: true,
-//             job_description: true,
-//             job_requirements: true,
-//             job_type: true,
-//             job_location: true,
-//             posted_date: true,
-//             employer: {
-//               select: {
-//                 id: true,
-//                 name: true,
-//                 about: true,
-//                 website_url: true
-//               }
-//             }
-//           }
-//         },
-//         answers: {
-//           include: {
-//             question: {
-//               select: {
-//                 text: true
-//               }
-//             }
-//           }
-//         }
-//       }
-//     });
+    console.log('[DEBUG] Fetching applications with filters:', { seekerId, status, pageNumber, pageSize });
 
-//     if (!application) {
-//       return c.json({
-//         success: false,
-//         message: 'Application not found',
-//       }, 404);
-//     }
+    // Fetch applications with job details
+    const [applications, total] = await Promise.all([
+      prisma.jobApplication.findMany({
+        where: whereClause,
+        skip,
+        take: pageSize,
+        orderBy: {
+          application_date: 'desc'
+        },
+        include: {
+          job_listing: {
+            select: {
+              id: true,
+              job_title: true,
+              job_type: true,
+              job_location: true,
+              salary_range_min: true,
+              salary_range_max: true,
+              work_mode: true,
+              posted_date: true,
+              employer: {
+                select: {
+                  id: true,
+                  company_name: true,
+                  logo_path: true
+                }
+              }
+            }
+          }
+        }
+      }),
+      prisma.jobApplication.count({
+        where: whereClause
+      })
+    ]);
 
-//     return c.json({
-//       success: true,
-//       data: {
-//         id: application.id,
-//         status: application.status,
-//         cover_letter: application.cover_letter,
-//         resume_url: application.resume_url,
-//         applied_at: application.applied_at,
-//         job: {
-//           id: application.job_listing.id,
-//           title: application.job_listing.job_title,
-//           description: application.job_listing.job_description,
-//           requirements: application.job_listing.job_requirements,
-//           type: application.job_listing.job_type,
-//           location: application.job_listing.job_location,
-//           posted_date: application.job_listing.posted_date,
-//           company: {
-//             id: application.job_listing.employer.id,
-//             name: application.job_listing.employer.name,
-//             about: application.job_listing.employer.about,
-//             website: application.job_listing.employer.website_url
-//           }
-//         },
-//         answers: application.answers.map(answer => ({
-//           question: answer.question.text,
-//           answer: answer.answer
-//         }))
-//       }
-//     });
-//   } catch (error) {
-//     console.error('Error fetching application details:', error);
-//     return c.json({
-//       success: false,
-//       message: 'Failed to fetch application details',
-//     }, 500);
-//   }
-// };
+    console.log('[DEBUG] Found applications:', applications.length);
 
-// // Withdraw application
-// export const withdrawApplicationController = async (c: Context): Promise<Response> => {
-//   try {
-//     const applicantId = c.get('applicantId');
-//     const applicationId = parseInt(c.req.param('id'));
+    // Transform the data to match frontend expectations
+    const transformedApplications = applications.map(app => ({
+      id: app.id,
+      jobId: app.job_id,
+      status: app.status.toLowerCase(),
+      date: app.application_date.toISOString().split('T')[0],
+      coverLetter: app.cover_letter,
+      resume: app.resume,
+      job: {
+        id: app.job_listing.id,
+        title: app.job_listing.job_title,
+        company: app.job_listing.employer.company_name,
+        location: app.job_listing.job_location || '',
+        salary: app.job_listing.salary_range_min && app.job_listing.salary_range_max 
+          ? `$${app.job_listing.salary_range_min.toLocaleString()} - $${app.job_listing.salary_range_max.toLocaleString()}`
+          : '',
+        type: app.job_listing.job_type || '',
+        posted: app.job_listing.posted_date.toISOString().split('T')[0],
+        workMode: app.job_listing.work_mode,
+        logo: app.job_listing.employer.logo_path
+      },
+      updates: [] // Placeholder for future updates feature
+    }));
 
-//     // Verify application belongs to applicant
-//     const application = await prisma.jobApplication.findFirst({
-//       where: {
-//         id: applicationId,
-//         applicant_id: applicantId,
-//         status: {
-//           in: ['pending', 'reviewed'] // Can only withdraw if not in final states
-//         }
-//       }
-//     });
+    return c.json({
+      success: true,
+      data: transformedApplications,
+      pagination: {
+        current_page: pageNumber,
+        total_pages: Math.ceil(total / pageSize),
+        total_items: total,
+        per_page: pageSize
+      }
+    });
 
-//     if (!application) {
-//       return c.json({
-//         success: false,
-//         message: 'Application not found or cannot be withdrawn',
-//       }, 404);
-//     }
+  } catch (error) {
+    console.error('[ERROR] Error fetching user applications:', error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return c.json({ 
+        success: false,
+        error: "Database error occurred" 
+      }, 500);
+    }
+    if (error instanceof Error) {
+      return c.json({ 
+        success: false,
+        error: error.message || "Internal server error" 
+      }, 500);
+    }
+    return c.json({ 
+      success: false,
+      error: "Internal server error" 
+    }, 500);
+  }
+};
 
-//     // Update status to withdrawn
-//     await prisma.jobApplication.update({
-//       where: { id: applicationId },
-//       data: { status: 'withdrawn' }
-//     });
+// Get applicants for an employer
+export const getEmployerApplicantsController = async (c: Context): Promise<Response> => {
+  try {
+    console.log('[DEBUG] Starting to fetch employer applicants');
 
-//     return c.json({
-//       success: true,
-//       message: 'Application withdrawn successfully'
-//     });
-//   } catch (error) {
-//     console.error('Error withdrawing application:', error);
-//     return c.json({
-//       success: false,
-//       message: 'Failed to withdraw application',
-//     }, 500);
-//   }
-// };
+    // Get and verify token
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('[ERROR] Missing or invalid Authorization header');
+      return c.json({ 
+        success: false, 
+        error: "Missing or invalid authorization" 
+      }, 401);
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const verifiedToken = await verifyToken(token);
+    
+    if (!verifiedToken || !verifiedToken.userId) {
+      console.error('[ERROR] Invalid or expired token');
+      return c.json({ 
+        success: false, 
+        error: "Invalid authorization token" 
+      }, 401);
+    }
+
+    const userId = verifiedToken.userId;
+
+    // Find the Employer profile for this user
+    const employer = await prisma.employer.findUnique({
+      where: { user_id: userId }
+    });
+    
+    if (!employer) {
+      console.log('[INFO] No Employer profile found for user:', userId);
+      return c.json({ 
+        success: true, 
+        data: [],
+        message: "No applicants found - user is not an employer"
+      });
+    }
+
+    const employerId = employer.id;
+
+    // Get query parameters for filtering
+    const { status, job_id, page = '1', limit = '10' } = c.req.query();
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
+    const skip = (pageNumber - 1) * pageSize;
+
+    // Build where clause
+    const whereClause: any = {
+      employer_id: employerId
+    };
+    
+    if (status && status !== 'all') {
+      whereClause.status = status.toUpperCase();
+    }
+
+    if (job_id && job_id !== 'all') {
+      whereClause.job_id = parseInt(job_id);
+    }
+
+    console.log('[DEBUG] Fetching applicants with filters:', { employerId, status, job_id, pageNumber, pageSize });
+
+    // Fetch applications with job seeker and job details
+    const [applications, total] = await Promise.all([
+      prisma.jobApplication.findMany({
+        where: whereClause,
+        skip,
+        take: pageSize,
+        orderBy: {
+          application_date: 'desc'
+        },
+        include: {
+          seeker: true,
+          job_listing: {
+            select: {
+              id: true,
+              job_title: true,
+              job_type: true,
+              job_location: true,
+              salary_range_min: true,
+              salary_range_max: true,
+              work_mode: true,
+              posted_date: true
+            }
+          }
+        }
+      }),
+      prisma.jobApplication.count({
+        where: whereClause
+      })
+    ]);
+
+    // Fetch user data for each seeker
+    const seekerUserIds = [...new Set(applications.map(app => app.seeker.user_id))];
+    const users = await prisma.user.findMany({
+      where: {
+        id: { in: seekerUserIds }
+      },
+      select: {
+        id: true,
+        first_name: true,
+        last_name: true,
+        email: true,
+        phone_number: true
+      }
+    });
+
+    // Create a map for quick user lookup
+    const userMap = new Map(users.map(user => [user.id, user]));
+
+    console.log('[DEBUG] Found applications:', applications.length);
+
+    // Transform the data to match frontend expectations
+    const transformedApplicants = applications.map(app => {
+      const user = userMap.get(app.seeker.user_id);
+      return {
+        id: app.id,
+        applicationId: app.id,
+        name: user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Unknown Applicant' : 'Unknown Applicant',
+        email: user?.email || 'No email',
+        phone: user?.phone_number || 'No phone',
+        position: app.job_listing.job_title,
+        status: app.status.toLowerCase(),
+        experience: app.seeker.experience_years ? `${app.seeker.experience_years} years` : 'Not specified',
+        applied: app.application_date.toISOString().split('T')[0],
+        coverLetter: app.cover_letter,
+        resume: app.resume,
+        education: app.seeker.education,
+        currentJobTitle: app.seeker.current_job_title,
+        desiredJobTitle: app.seeker.desired_job_title,
+        desiredSalary: app.seeker.desired_salary,
+        locationPreference: app.seeker.location_preference,
+        resumeText: app.seeker.resume_text,
+        job: {
+          id: app.job_listing.id,
+          title: app.job_listing.job_title,
+          type: app.job_listing.job_type,
+          location: app.job_listing.job_location,
+          salary: app.job_listing.salary_range_min && app.job_listing.salary_range_max 
+            ? `$${app.job_listing.salary_range_min.toLocaleString()} - $${app.job_listing.salary_range_max.toLocaleString()}`
+            : 'Not specified',
+          workMode: app.job_listing.work_mode,
+          posted: app.job_listing.posted_date.toISOString().split('T')[0]
+        },
+        skills: [] // Placeholder for future skills feature
+      };
+    });
+
+    return c.json({
+      success: true,
+      data: transformedApplicants,
+      pagination: {
+        current_page: pageNumber,
+        total_pages: Math.ceil(total / pageSize),
+        total_items: total,
+        per_page: pageSize
+      }
+    });
+
+  } catch (error) {
+    console.error('[ERROR] Error fetching employer applicants:', error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return c.json({ 
+        success: false,
+        error: "Database error occurred" 
+      }, 500);
+    }
+    if (error instanceof Error) {
+      return c.json({ 
+        success: false,
+        error: error.message || "Internal server error" 
+      }, 500);
+    }
+    return c.json({ 
+      success: false,
+      error: "Internal server error" 
+    }, 500);
+  }
+};
+
+// Save a job for logged-in user
+export const saveJobController = async (c: Context): Promise<Response> => {
+  try {
+    console.log('[DEBUG] Starting to save job');
+
+    // Get and verify token
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('[ERROR] Missing or invalid Authorization header');
+      return c.json({ 
+        success: false, 
+        error: "Missing or invalid authorization" 
+      }, 401);
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const verifiedToken = await verifyToken(token);
+    
+    if (!verifiedToken || !verifiedToken.userId) {
+      console.error('[ERROR] Invalid or expired token');
+      return c.json({ 
+        success: false, 
+        error: "Invalid authorization token" 
+      }, 401);
+    }
+
+    const userId = verifiedToken.userId;
+
+    // Find the JobSeeker profile for this user
+    const jobSeeker = await prisma.jobSeeker.findUnique({
+      where: { user_id: userId }
+    });
+    
+    if (!jobSeeker) {
+      console.log('[INFO] No JobSeeker profile found for user:', userId);
+      return c.json({ 
+        success: false, 
+        error: "User is not a job seeker" 
+      }, 400);
+    }
+
+    const seekerId = jobSeeker.id;
+
+    // Get job ID from request body
+    const body = await c.req.json();
+    const { job_id } = body;
+
+    if (!job_id) {
+      return c.json({ 
+        success: false, 
+        error: "Job ID is required" 
+      }, 400);
+    }
+
+    // Check if job already exists
+    const existingJob = await prisma.jobListing.findUnique({
+      where: { id: job_id }
+    });
+
+    if (!existingJob) {
+      return c.json({ 
+        success: false, 
+        error: "Job not found" 
+      }, 404);
+    }
+
+    // Check if job is already saved
+    const existingSavedJob = await prisma.savedJob.findUnique({
+      where: {
+        seeker_id_job_id: {
+          seeker_id: seekerId,
+          job_id: job_id
+        }
+      }
+    });
+
+    if (existingSavedJob) {
+      return c.json({ 
+        success: false, 
+        error: "Job is already saved" 
+      }, 400);
+    }
+
+    // Save the job
+    const savedJob = await prisma.savedJob.create({
+      data: {
+        seeker_id: seekerId,
+        job_id: job_id,
+        saved_date: new Date()
+      }
+    });
+
+    // Get job details separately
+    const jobDetails = await prisma.jobListing.findUnique({
+      where: { id: job_id },
+      select: {
+        id: true,
+        job_title: true,
+        employer: {
+          select: {
+            company_name: true
+          }
+        }
+      }
+    });
+
+    console.log('[DEBUG] Job saved successfully:', savedJob.id);
+
+    return c.json({
+      success: true,
+      data: {
+        saved_job_id: savedJob.id,
+        job_title: jobDetails?.job_title || 'Unknown Job',
+        company: jobDetails?.employer?.company_name || 'Unknown Company',
+        saved_date: savedJob.saved_date
+      },
+      message: "Job saved successfully"
+    });
+
+  } catch (error) {
+    console.error('[ERROR] Error saving job:', error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        return c.json({ 
+          success: false,
+          error: "Job is already saved" 
+        }, 400);
+      }
+      return c.json({ 
+        success: false,
+        error: "Database error occurred" 
+      }, 500);
+    }
+    if (error instanceof Error) {
+      return c.json({ 
+        success: false,
+        error: error.message || "Internal server error" 
+      }, 500);
+    }
+    return c.json({ 
+      success: false,
+      error: "Internal server error" 
+    }, 500);
+  }
+};
+
+// Unsave a job for logged-in user
+export const unsaveJobController = async (c: Context): Promise<Response> => {
+  try {
+    console.log('[DEBUG] Starting to unsave job');
+
+    // Get and verify token
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('[ERROR] Missing or invalid Authorization header');
+      return c.json({ 
+        success: false, 
+        error: "Missing or invalid authorization" 
+      }, 401);
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const verifiedToken = await verifyToken(token);
+    
+    if (!verifiedToken || !verifiedToken.userId) {
+      console.error('[ERROR] Invalid or expired token');
+      return c.json({ 
+        success: false, 
+        error: "Invalid authorization token" 
+      }, 401);
+    }
+
+    const userId = verifiedToken.userId;
+
+    // Find the JobSeeker profile for this user
+    const jobSeeker = await prisma.jobSeeker.findUnique({
+      where: { user_id: userId }
+    });
+    
+    if (!jobSeeker) {
+      console.log('[INFO] No JobSeeker profile found for user:', userId);
+      return c.json({ 
+        success: false, 
+        error: "User is not a job seeker" 
+      }, 400);
+    }
+
+    const seekerId = jobSeeker.id;
+
+    // Get job ID from request body
+    const body = await c.req.json();
+    const { job_id } = body;
+
+    if (!job_id) {
+      return c.json({ 
+        success: false, 
+        error: "Job ID is required" 
+      }, 400);
+    }
+
+    // Find and delete the saved job
+    const deletedSavedJob = await prisma.savedJob.deleteMany({
+      where: {
+        seeker_id: seekerId,
+        job_id: job_id
+      }
+    });
+
+    if (deletedSavedJob.count === 0) {
+      return c.json({ 
+        success: false, 
+        error: "Job is not saved" 
+      }, 404);
+    }
+
+    console.log('[DEBUG] Job unsaved successfully');
+
+    return c.json({
+      success: true,
+      message: "Job unsaved successfully"
+    });
+
+  } catch (error) {
+    console.error('[ERROR] Error unsaving job:', error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return c.json({ 
+        success: false,
+        error: "Database error occurred" 
+      }, 500);
+    }
+    if (error instanceof Error) {
+      return c.json({ 
+        success: false,
+        error: error.message || "Internal server error" 
+      }, 500);
+    }
+    return c.json({ 
+      success: false,
+      error: "Internal server error" 
+    }, 500);
+  }
+};
+
+// Get saved jobs for logged-in user
+export const getSavedJobsController = async (c: Context): Promise<Response> => {
+  try {
+    console.log('[DEBUG] Starting to fetch saved jobs');
+
+    // Get and verify token
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('[ERROR] Missing or invalid Authorization header');
+      return c.json({ 
+        success: false, 
+        error: "Missing or invalid authorization" 
+      }, 401);
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const verifiedToken = await verifyToken(token);
+    
+    if (!verifiedToken || !verifiedToken.userId) {
+      console.error('[ERROR] Invalid or expired token');
+      return c.json({ 
+        success: false, 
+        error: "Invalid authorization token" 
+      }, 401);
+    }
+
+    const userId = verifiedToken.userId;
+
+    // Find the JobSeeker profile for this user
+    const jobSeeker = await prisma.jobSeeker.findUnique({
+      where: { user_id: userId }
+    });
+    
+    if (!jobSeeker) {
+      console.log('[INFO] No JobSeeker profile found for user:', userId);
+      return c.json({ 
+        success: true, 
+        data: [],
+        message: "No saved jobs found - user is not a job seeker"
+      });
+    }
+
+    const seekerId = jobSeeker.id;
+
+    // Get query parameters for pagination
+    const { page = '1', limit = '10' } = c.req.query();
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
+    const skip = (pageNumber - 1) * pageSize;
+
+    console.log('[DEBUG] Fetching saved jobs with pagination:', { seekerId, pageNumber, pageSize });
+
+    // Fetch saved jobs
+    const [savedJobs, total] = await Promise.all([
+      prisma.savedJob.findMany({
+        where: { seeker_id: seekerId },
+        skip,
+        take: pageSize,
+        orderBy: {
+          saved_date: 'desc'
+        }
+      }),
+      prisma.savedJob.count({
+        where: { seeker_id: seekerId }
+      })
+    ]);
+
+    console.log('[DEBUG] Found saved jobs:', savedJobs.length);
+
+    // Get job details for each saved job
+    const jobIds = savedJobs.map(savedJob => savedJob.job_id);
+    const jobDetails = await prisma.jobListing.findMany({
+      where: { id: { in: jobIds } },
+      select: {
+        id: true,
+        job_title: true,
+        job_type: true,
+        job_location: true,
+        salary_range_min: true,
+        salary_range_max: true,
+        work_mode: true,
+        posted_date: true,
+        employer: {
+          select: {
+            id: true,
+            company_name: true,
+            logo_path: true,
+            user_id: true
+          }
+        },
+        job_description: true,
+        job_requirements: true,
+        required_skills: {
+          select: {
+            id: true,
+            skill: {
+              select: {
+                id: true,
+                name: true,
+                category: true
+              }
+            },
+            is_required: true,
+            importance_level: true
+          }
+        }
+      }
+    });
+
+    // Create a map for quick job lookup
+    const jobMap = new Map(jobDetails.map(job => [job.id, job]));
+
+    // Manual user lookup for employer
+    const employerUserIds = Array.from(new Set(jobDetails.map(j => j.employer?.user_id).filter(Boolean)));
+    const employerUsers = await prisma.user.findMany({
+      where: { id: { in: employerUserIds } },
+      select: { id: true, first_name: true, last_name: true }
+    });
+    const employerUserMap = new Map(employerUsers.map(u => [u.id, u]));
+
+    // Transform the data to match frontend expectations
+    const transformedSavedJobs = savedJobs.map(savedJob => {
+      const job = jobMap.get(savedJob.job_id) as any;
+      const employerUser = job?.employer?.user_id ? employerUserMap.get(job.employer.user_id) : null;
+      return {
+        id: savedJob.job_id,
+        title: job?.job_title || 'Unknown Job',
+        company: job?.employer?.company_name || 'Unknown Company',
+        location: job?.job_location || '',
+        salary: job?.salary_range_min && job?.salary_range_max 
+          ? `$${job.salary_range_min.toLocaleString()} - $${job.salary_range_max.toLocaleString()}`
+          : '',
+        type: job?.job_type || '',
+        posted: job?.posted_date ? job.posted_date.toISOString().split('T')[0] : '',
+        workMode: job?.work_mode,
+        logo: job?.employer?.logo_path,
+        savedDate: savedJob.saved_date.toISOString().split('T')[0],
+        status: "saved",
+        job_description: job?.job_description || "",
+        job_requirements: job?.job_requirements || "",
+        skills: (job?.required_skills || []).map((rs: any) => ({
+          id: rs.skill.id,
+          name: rs.skill.name,
+          category: rs.skill.category,
+          is_required: rs.is_required,
+          importance_level: rs.importance_level
+        })),
+        hrFirstName: employerUser?.first_name || '',
+        hrLastName: employerUser?.last_name || '',
+      };
+    });
+
+    return c.json({
+      success: true,
+      data: transformedSavedJobs,
+      pagination: {
+        current_page: pageNumber,
+        total_pages: Math.ceil(total / pageSize),
+        total_items: total,
+        per_page: pageSize
+      }
+    });
+
+  } catch (error) {
+    console.error('[ERROR] Error fetching saved jobs:', error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return c.json({ 
+        success: false,
+        error: "Database error occurred" 
+      }, 500);
+    }
+    if (error instanceof Error) {
+      return c.json({ 
+        success: false,
+        error: error.message || "Internal server error" 
+      }, 500);
+    }
+    return c.json({ 
+      success: false,
+      error: "Internal server error" 
+    }, 500);
+  }
+};

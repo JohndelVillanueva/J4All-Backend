@@ -1,0 +1,27 @@
+### Test Save Job
+POST http://localhost:3111/save-job
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "job_id": 1
+}
+
+### Test Unsave Job
+DELETE http://localhost:3111/unsave-job
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "job_id": 1
+}
+
+### Test Get Saved Jobs
+GET http://localhost:3111/saved-jobs
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+Content-Type: application/json
+
+### Test Get Saved Jobs with Pagination
+GET http://localhost:3111/saved-jobs?page=1&limit=5
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+Content-Type: application/json 
