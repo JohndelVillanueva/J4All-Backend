@@ -2,11 +2,12 @@ import { Hono } from "hono";
 // import {
 
 // } from "./index.js";
-import  { applyForJobController, getUserApplicationsController, getEmployerApplicantsController, saveJobController, unsaveJobController, getSavedJobsController } from "./index.js";
+import  { applyForJobController, getUserApplicationsController, getEmployerApplicantsController, saveJobController, unsaveJobController, getSavedJobsController, updateApplicationStatusController } from "./index.js";
 import { authMiddleware } from "../../utils/auth.js";
 
 const applicant = new Hono()
   .post('/job-applications', applyForJobController)
+  .patch('/job-applications/:id/status', authMiddleware, updateApplicationStatusController)
   .get('/applications', authMiddleware, getUserApplicationsController)
   .get('/employer-applicants', authMiddleware, getEmployerApplicantsController)
   .post('/save-job', authMiddleware, saveJobController)

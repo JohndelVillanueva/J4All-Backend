@@ -628,6 +628,7 @@ export const getAllJobListingController = async (
         status: job.is_active ? "active" : "closed",
         applicants: job._count.applications,
         employer_id: job.employer?.id || 0, // Fallback to 0 if missing
+        employer_user_id: job.employer?.user_id || 0, // Add employer's user ID for messaging
         company: companyData,
         required_skills: job.required_skills.map(skill => ({
           id: skill.id,

@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { auth, jobPosting, routes, skill, applicant } from './controllers/routes.js'
+import { auth, jobPosting, routes, skill, applicant, notifications, messages } from './controllers/routes.js'
 import { serveStatic } from 'hono/serve-static';
 import { promises as fs } from 'fs'
 import path from 'path'
@@ -46,24 +46,32 @@ app.use('/uploads/*', serveStatic({
   }
 }))
 
-// Mount routes at root level since the proxy will handle the /api prefix
+// Mount routes with /api prefix
 routes.forEach((route) => {
-  app.route('', route);
+  app.route('/api', route);
 });
 
 auth.forEach((authRoute) => {
-  app.route('', authRoute);
+  app.route('/api', authRoute);
 });
 skill.forEach((skillRoutes) => {
-  app.route('', skillRoutes);
+  app.route('/api', skillRoutes);
 });
 
 jobPosting.forEach((jobRoute) => {
-  app.route('', jobRoute);
+  app.route('/api', jobRoute);
 });
 
 applicant.forEach((applicantRoute) => {
-  app.route('', applicantRoute);
+  app.route('/api', applicantRoute);
+});
+
+notifications.forEach((notificationRoute) => {
+  app.route('/api/notifications', notificationRoute);
+});
+
+messages.forEach((messageRoute) => {
+  app.route('/api/messages', messageRoute);
 });
 
 // Add a test route

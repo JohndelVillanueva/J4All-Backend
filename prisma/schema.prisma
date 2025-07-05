@@ -187,8 +187,44 @@ model User {
   employer      Employer?
   verificationTokens VerificationToken[]
   notifications      Notification[] @relation("UserNotifications")
+  sentMessages       Message[]      @relation("SentMessages")
+  receivedMessages   Message[]      @relation("ReceivedMessages")
+  conversations1     Conversation[] @relation("ConversationParticipant1")
+  conversations2     Conversation[] @relation("ConversationParticipant2")
 
   @@map("users")
+}
+
+model Message {
+  id              Int      @id @default(autoincrement())
+  conversation_id Int
+  sender_id       Int
+  receiver_id     Int
+  content         String
+  is_read         Boolean  @default(false)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  conversation    Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  sender          User     @relation("SentMessages", fields: [sender_id], references: [id], onDelete: Cascade)
+  receiver        User     @relation("ReceivedMessages", fields: [receiver_id], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model Conversation {
+  id              Int      @id @default(autoincrement())
+  participant1_id Int
+  participant2_id Int
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  participant1    User     @relation("ConversationParticipant1", fields: [participant1_id], references: [id], onDelete: Cascade)
+  participant2    User     @relation("ConversationParticipant2", fields: [participant2_id], references: [id], onDelete: Cascade)
+  messages        Message[]
+
+  @@unique([participant1_id, participant2_id])
+  @@map("conversations")
 }
 
 model VerificationToken {
