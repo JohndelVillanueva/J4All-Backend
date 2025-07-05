@@ -115,16 +115,18 @@ model JobSeeker {
 }
 
 model Notification {
-  id         Int      @id @default(autoincrement())
-  user_id    Int
-  title      String
-  message    String
-  type       String
-  is_read    Boolean  @default(false)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  user_id        Int
+  title          String
+  message        String
+  type           String
+  conversation_id Int?    // Optional field for message notifications
+  is_read        Boolean  @default(false)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
 
-  user       User     @relation(name: "UserNotifications", fields: [user_id], references: [id], onDelete: Cascade)
+  user           User     @relation(name: "UserNotifications", fields: [user_id], references: [id], onDelete: Cascade)
+  conversation   Conversation? @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
 
   @@map("notifications")
 }
@@ -222,6 +224,7 @@ model Conversation {
   participant1    User     @relation("ConversationParticipant1", fields: [participant1_id], references: [id], onDelete: Cascade)
   participant2    User     @relation("ConversationParticipant2", fields: [participant2_id], references: [id], onDelete: Cascade)
   messages        Message[]
+  notifications   Notification[]
 
   @@unique([participant1_id, participant2_id])
   @@map("conversations")

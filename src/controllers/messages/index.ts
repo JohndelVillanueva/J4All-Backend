@@ -196,6 +196,27 @@ export const getMessagesController = async (
       },
     });
 
+    // Mark message notifications as read for this conversation
+    try {
+      await prisma.notification.updateMany({
+        where: {
+          user_id: user.id,
+          type: 'message',
+          is_read: false,
+          message: {
+            contains: `conversation ${conversationId}` // This is a simple approach - we could make it more sophisticated
+          }
+        },
+        data: {
+          is_read: true,
+        },
+      });
+      console.log('[INFO] Message notifications marked as read for conversation:', conversationId);
+    } catch (notificationError) {
+      console.error('[ERROR] Failed to mark message notifications as read:', notificationError);
+      // Don't fail the message fetch if notification update fails
+    }
+
     return c.json({
       success: true,
       data: messages,
@@ -383,7 +404,8 @@ export const sendMessageController = async (
           message: `${senderName} sent you a message: "${message.content.slice(0, 50)}"`,
           type: 'message', // Special type for message notifications
           user_id: message.receiver.id,
-          is_read: false
+          is_read: false,
+          conversation_id: conversationId,
         }
       });
       console.log('[INFO] Message notification stored in database');
