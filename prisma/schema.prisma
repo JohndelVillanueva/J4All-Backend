@@ -182,6 +182,7 @@ model User {
   first_name    String?
   last_name     String?
   phone_number  String?
+  photo         String?   // Profile photo file path
   created_at    DateTime  @default(now())
   last_login    DateTime?
   is_active     Boolean   @default(true)

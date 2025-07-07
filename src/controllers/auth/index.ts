@@ -378,6 +378,27 @@ export const createEmployerController = async (c: Context) => {
       logoPath = `/uploads/${fileName}`;
     }
 
+    // Handle photo file upload
+    let photoPath: string | null = null;
+    const photoFile = formData.get('photo') as File | null;
+
+    if (photoFile && photoFile.size > 0) {
+      const buffer = await photoFile.arrayBuffer();
+      const fileBytes = Buffer.from(buffer);
+      const fileExt = path.extname(photoFile.name);
+      const fileName = `user_${crypto.randomUUID()}${fileExt}`;
+      const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'photos');
+      
+      // Ensure upload directory exists
+      await fs.promises.mkdir(uploadDir, { recursive: true });
+      
+      const filePath = path.join(uploadDir, fileName);
+      await fs.promises.writeFile(filePath, fileBytes);
+      
+      // Store relative path from public directory
+      photoPath = `/uploads/photos/${fileName}`;
+    }
+
     // Transaction: create user & employer
     const result = await prisma.$transaction(async (tx) => {
       const userRecord = await tx.user.create({
@@ -389,8 +410,9 @@ export const createEmployerController = async (c: Context) => {
           last_name: user.lastName,
           phone_number: user.phone,
           user_type: "employer",
+          photo: photoPath,
           is_active: true,
-        },
+        } as any,
       });
 
       const employerRecord = await tx.employer.create({

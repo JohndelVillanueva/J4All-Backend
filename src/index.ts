@@ -1,13 +1,31 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { auth, jobPosting, routes, skill, applicant, notifications, messages } from './controllers/routes.js'
+import { auth, jobPosting, routes, skill, applicant, notifications, messages, photos } from './controllers/routes.js'
 import { serveStatic } from 'hono/serve-static';
-import { promises as fs } from 'fs'
-import path from 'path'
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
+import path from 'path';
+import fs from 'fs/promises';
 
 const app = new Hono()
 
+// Serve static files (uploads, images, etc.) FIRST
+app.use('/uploads/*', serveStatic({
+  getContent: async (filePath, c) => {
+    console.log('Requested filePath for static:', filePath);
+    const fullPath = path.join(process.cwd(), 'public', filePath);
+    console.log('Resolved fullPath for static:', fullPath);
+    try {
+      return await fs.readFile(fullPath);
+    } catch (e) {
+      console.error('Error reading file:', e);
+      return null;
+    }
+  }
+}));
+
+
+// Add CORS middleware
 // Add CORS middleware
 app.use('/*', cors({
   origin: ['http://localhost:5173'], // Your frontend URL
@@ -30,21 +48,6 @@ app.use('*', async (c, next) => {
   await next();
   console.log(`Response: ${c.res.status}`);
 });
-
-
-
-app.use('/uploads/*', serveStatic({
-  root: './',
-  rewriteRequestPath: (path) => path.replace(/^\/uploads/, '/backend/public/uploads'),
-  getContent: async (filePath) => {
-    const filename = filePath.replace(/^\/+/, '')
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png)$/i.test(filename)) {
-      return null // Reject malformed filenames
-    }
-    const absPath = path.join('./backend/public/uploads', filename)
-    return await fs.readFile(absPath)
-  }
-}))
 
 // Mount routes with /api prefix
 routes.forEach((route) => {
@@ -74,10 +77,20 @@ messages.forEach((messageRoute) => {
   app.route('/api/messages', messageRoute);
 });
 
+photos.forEach((photoRoute) => {
+  app.route('/api/photos', photoRoute);
+});
+
 // Add a test route
 app.get('/test', (c) => {
   return c.json({ message: 'Server is working!' });
 });
+
+// Add error handling middleware (must be last)
+app.onError(errorHandler);
+
+// Add 404 handler for unmatched routes
+app.notFound(notFoundHandler);
 
 console.log('Starting server...');
 serve({

@@ -1,11 +1,11 @@
 import { type Context } from "hono";
 import bcrypt from "bcryptjs";
 import { z } from "zod"; // For validation
-import { PrismaClient, Prisma } from "@prisma/client";
+import { prisma } from "../../db.js";
 import { checkRateLimit } from "../../utils/rate-limit.js";
 import { generateToken, verifyPassword } from '../../utils/auth.js'; // Assuming you have an auth utility for token generation
 import crypto from "crypto";
-import { UserType } from '@prisma/client'; // Add this import
+import { PhotoService } from "../../services/photoService.js";
 
 // User creation schema
 const CreateUserSchema = z.object({
@@ -21,6 +21,7 @@ const CreateUserSchema = z.object({
   first_name: z.string().min(2).optional(),
   last_name: z.string().min(2).optional(),
   phone_number: z.string().regex(/^\+?[0-9\s-]+$/).optional(),
+  address: z.string().min(5).max(500).optional(),
 });
 interface UserResponse {
   id: number;
@@ -102,9 +103,6 @@ const employerSignUpSchema = z.object({
     message: "Passwords don't match",
     path: ["confirmPassword"],
   });
-
-const prisma = new PrismaClient();
-
 
 export const userLoginController = async (c: Context): Promise<Response> => {
   // const prisma = new PrismaClient();
@@ -212,20 +210,25 @@ export const userLoginController = async (c: Context): Promise<Response> => {
 
 export const createUserController = async (c: Context) => {
   try {
-    // 1. Get and sanitize input
-    let rawData;
-    try {
+    let rawData: any;
+    let photoFile: File | null = null;
+
+    // Detect content type
+    const contentType = c.req.header('content-type') || '';
+    if (contentType.includes('multipart/form-data')) {
+      // Handle FormData
+      const formData = await c.req.formData();
+      rawData = {};
+      for (const [key, value] of formData.entries()) {
+        if (key === 'photo' && value instanceof File) {
+          photoFile = value;
+        } else {
+          rawData[key] = value;
+        }
+      }
+    } else {
+      // Handle JSON
       rawData = await c.req.json();
-      console.log("Received data:", JSON.stringify(rawData, null, 2));
-    } catch (e) {
-      console.error("Failed to parse request body:", e);
-      return c.json(
-        {
-          success: false,
-          error: "Invalid request body",
-        },
-        400
-      );
     }
 
     const sanitizedData = Object.fromEntries(
@@ -253,17 +256,18 @@ export const createUserController = async (c: Context) => {
 
     // 3. Check password strength
     try {
-      const passwordStrength = require("zxcvbn")(userData.password);
+      const { default: zxcvbn } = await import("zxcvbn");
+      const passwordStrength = zxcvbn(userData.password);
       if (passwordStrength.score < 3) {
         return c.json(
           {
-        success: false,
+            success: false,
             error: "Password too weak",
             suggestions: passwordStrength.feedback.suggestions,
           },
           400
         );
-    }
+      }
     } catch (e) {
       console.error("Password strength check failed:", e);
       // Continue without password strength check if zxcvbn fails
@@ -287,7 +291,7 @@ export const createUserController = async (c: Context) => {
 
     // 5. Create user in transaction
     const user = await prisma.$transaction(
-      async (tx: Prisma.TransactionClient) => {
+      async (tx: any) => {
         const hashedPassword = await bcrypt.hash(userData.password, 10);
 
         console.log(`User creation attempt: ${normalizedEmail}`);
@@ -300,6 +304,7 @@ export const createUserController = async (c: Context) => {
             first_name: userData.first_name,
             last_name: userData.last_name,
             phone_number: userData.phone_number
+            // address: userData.address, // REMOVED, not in Prisma schema
           },
         });
         console.log(`User created successfully: ${createdUser.id}`);
@@ -315,6 +320,12 @@ export const createUserController = async (c: Context) => {
         return createdUser;
       }
     );
+
+    // Save photo if present
+    if (photoFile) {
+      console.log('[createUserController] photoFile:', photoFile, 'type:', typeof photoFile, 'name:', photoFile.name, 'size:', photoFile.size);
+      await PhotoService.updateUserPhoto(user.id, photoFile, photoFile.name);
+    }
 
     // 6. Create email verification token
     try {
@@ -349,22 +360,26 @@ export const createUserController = async (c: Context) => {
   } catch (error: unknown) {
     console.error("Detailed error:", error);
 
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      console.error("Prisma error code:", error.code);
-      console.error("Prisma error meta:", error.meta);
-
-      if (error.code === "P2002") {
-        const target = error.meta?.target as string[];
-        if (target.includes("email")) {
-          return c.json(
-            {
-          success: false,
-              error: "Email already in use",
-            },
-            409
-          );
+    if ((error as any).code === "P2002") {
+      const target = (error as any).meta?.target as string[];
+      if (target.includes("email")) {
+        return c.json(
+          {
+        success: false,
+            error: "Email already in use",
+          },
+          409
+        );
       }
-    }
+      if (target.includes("username")) {
+        return c.json(
+          {
+            success: false,
+            error: "Username already in use",
+          },
+          409
+        );
+      }
     }
 
     const errorResponse = {

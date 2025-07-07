@@ -5,8 +5,7 @@ import skillRoutes from './skills/routes.js';
 import applicationRoute from './applicant/routes.js';
 import notificationRoutes from './notifications/routes.js';
 import messageRoutes from './messages/routes.js';
-
-
+import photoRoutes from './users/photoRoutes.js';
 
 export const routes = [usersRoutes] as const;
 export const auth = [authRoutes] as const;
@@ -15,6 +14,7 @@ export const skill = [skillRoutes] as const;
 export const applicant = [applicationRoute] as const;
 export const notifications = [notificationRoutes] as const;
 export const messages = [messageRoutes] as const;
+export const photos = [photoRoutes] as const;
 
 export type AppRouter = (typeof routes)[number];
 
