@@ -260,23 +260,72 @@ export const createConversationController = async (
     const validatedData = createConversationSchema.parse(body);
     console.log('Validated data:', validatedData);
 
-    // Check if conversation already exists
+    // Ensure both user IDs are numbers
+    const currentUserId = Number(user.id);
+    const participant2Id = Number(validatedData.participant2_id);
+
+    console.log('User IDs - Current user:', currentUserId, 'Participant2:', participant2Id);
+
+    // Verify both users exist in the database
+    const [currentUser, participant2User] = await Promise.all([
+      prisma.user.findUnique({ where: { id: currentUserId } }),
+      prisma.user.findUnique({ where: { id: participant2Id } })
+    ]);
+
+    if (!currentUser) {
+      console.error('Current user not found:', currentUserId);
+      return c.json(
+        {
+          success: false,
+          message: 'Current user not found',
+          code: 'USER_NOT_FOUND',
+        },
+        404
+      );
+    }
+
+    if (!participant2User) {
+      console.error('Participant2 user not found:', participant2Id);
+      return c.json(
+        {
+          success: false,
+          message: 'Target user not found',
+          code: 'USER_NOT_FOUND',
+        },
+        404
+      );
+    }
+
+    // Prevent self-conversation
+    if (currentUserId === participant2Id) {
+      return c.json(
+        {
+          success: false,
+          message: 'Cannot create conversation with yourself',
+          code: 'INVALID_PARTICIPANTS',
+        },
+        400
+      );
+    }
+
+    // Check if conversation already exists (check both directions)
     const existingConversation = await prisma.conversation.findFirst({
       where: {
         OR: [
           {
-            participant1_id: user.id,
-            participant2_id: validatedData.participant2_id,
+            participant1_id: currentUserId,
+            participant2_id: participant2Id,
           },
           {
-            participant1_id: validatedData.participant2_id,
-            participant2_id: user.id,
+            participant1_id: participant2Id,
+            participant2_id: currentUserId,
           },
         ],
       },
     });
 
     if (existingConversation) {
+      console.log('Conversation already exists:', existingConversation.id);
       return c.json({
         success: true,
         data: existingConversation,
@@ -284,12 +333,16 @@ export const createConversationController = async (
       });
     }
 
+    console.log('Creating new conversation between users:', currentUserId, 'and', participant2Id);
+
     const conversation = await prisma.conversation.create({
       data: {
-        participant1_id: user.id,
-        participant2_id: validatedData.participant2_id,
+        participant1_id: currentUserId,
+        participant2_id: participant2Id,
       },
     });
+
+    console.log('Conversation created successfully:', conversation.id);
 
     return c.json({
       success: true,
@@ -297,6 +350,7 @@ export const createConversationController = async (
     }, 201);
   } catch (error) {
     if (error instanceof z.ZodError) {
+      console.error('Validation error:', error.errors);
       return c.json(
         {
           success: false,
@@ -307,7 +361,35 @@ export const createConversationController = async (
         400
       );
     }
+    
+    // Log the full error for debugging
     console.error('Error creating conversation:', error);
+    
+    // Check for specific Prisma errors
+    if (error && typeof error === 'object' && 'code' in error) {
+      if (error.code === 'P2002') {
+        return c.json(
+          {
+            success: false,
+            message: 'Conversation already exists',
+            code: 'DUPLICATE_CONVERSATION',
+          },
+          409
+        );
+      }
+      
+      if (error.code === 'P2003') {
+        return c.json(
+          {
+            success: false,
+            message: 'Invalid user ID provided',
+            code: 'FOREIGN_KEY_CONSTRAINT',
+          },
+          400
+        );
+      }
+    }
+
     return c.json(
       {
         success: false,

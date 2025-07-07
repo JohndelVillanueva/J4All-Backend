@@ -503,6 +503,11 @@ export const getJobListingController = async (
             skill: true,
           },
         },
+        _count: {
+          select: {
+            applications: true
+          }
+        }
       },
       orderBy: {
         posted_date: "desc",
@@ -523,7 +528,7 @@ export const getJobListingController = async (
       expiration_date: job.expiration_date?.toISOString() || null,
       posted_date: job.posted_date.toISOString(),
       status: job.is_active ? "active" : "closed",
-      applicants: 0, // You might want to add actual applicant count
+      applicants: job._count.applications,
       required_skills: job.required_skills.map((rs) => ({
         skill_name: rs.skill.name,
         is_required: rs.is_required,
