@@ -42,6 +42,7 @@ model JobApplication {
   seeker           JobSeeker   @relation("SeekerApplications", fields: [seeker_id], references: [id], map: "fk_seeker_app")
   employer         Employer    @relation("EmployerToApplications", fields: [employer_id], references: [id], map: "fk_employer_app")
   answers Answers[] // Relation to answers
+  notifications    Notification[]   @relation("NotificationToApplication")
 
   @@map("job_applications")
 }
@@ -121,13 +122,14 @@ model Notification {
   message        String
   type           String
   conversation_id Int?    // Optional field for message notifications
+  application_id  Int?    // Optional field for job application notifications
   is_read        Boolean  @default(false)
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
   user           User     @relation(name: "UserNotifications", fields: [user_id], references: [id], onDelete: Cascade)
   conversation   Conversation? @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
-
+  application    JobApplication? @relation("NotificationToApplication", fields: [application_id], references: [id])
   @@map("notifications")
 }
 

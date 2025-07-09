@@ -29,7 +29,7 @@ app.use('/uploads/*', serveStatic({
 // Add CORS middleware
 app.use('/*', cors({
   origin: ['http://localhost:5173'], // Your frontend URL
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowHeaders: ['Content-Type', 'Authorization'],
   exposeHeaders: ['Content-Length', 'X-Kuma-Revision'],
   maxAge: 600,

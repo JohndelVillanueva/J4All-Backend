@@ -167,9 +167,10 @@ export const applyForJobController = async (c: Context): Promise<Response> => {
         data: {
           title: 'New Job Application',
           message: `${applicantName} has applied for the position: ${application.job_listing.job_title}`,
-          type: 'info',
+          type: 'application',
           user_id: application.job_listing.employer.user_id,
-          is_read: false
+          is_read: false,
+          application_id: application.id
         }
       });
 
@@ -187,7 +188,8 @@ export const applyForJobController = async (c: Context): Promise<Response> => {
           message: `Your application for "${application.job_listing.job_title}" at ${application.job_listing.employer.company_name} has been submitted successfully.`,
           type: 'success',
           user_id: userId,
-          is_read: false
+          is_read: false,
+          application_id: application.id
         }
       });
 
@@ -1163,5 +1165,62 @@ export const updateApplicationStatusController = async (c: Context): Promise<Res
       success: false,
       error: "Internal server error" 
     }, 500);
+  }
+};
+
+export const getApplicationDetailsController = async (c: Context): Promise<Response> => {
+  const id = c.req.param('id');
+  try {
+    const application = await prisma.jobApplication.findUnique({
+      where: { id: Number(id) },
+      include: {
+        job_listing: {
+          select: {
+            job_title: true,
+            employer: { select: { company_name: true } }
+          }
+        },
+        seeker: true
+      }
+    });
+    if (!application) {
+      console.error(`[ERROR] Application not found for id: ${id}`);
+      return c.json({ success: false, message: 'Application not found' }, 404);
+    }
+
+    let applicantUser = null;
+    if (application.seeker && application.seeker.user_id) {
+      applicantUser = await prisma.user.findUnique({
+        where: { id: application.seeker.user_id }
+      });
+      if (!applicantUser) {
+        console.error(`[ERROR] User not found for seeker user_id: ${application.seeker.user_id}`);
+      }
+    } else {
+      console.error(`[ERROR] Seeker or seeker.user_id not found for application id: ${id}`);
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        id: application.id,
+        job_title: application.job_listing.job_title,
+        company: application.job_listing.employer.company_name,
+        status: application.status,
+        applied_at: application.application_date,
+        resume: application.resume, // <-- add this
+        cover_letter: application.cover_letter, // <-- add this
+        applicant: applicantUser ? {
+          first_name: applicantUser.first_name,
+          last_name: applicantUser.last_name,
+          email: applicantUser.email,
+          phone_number: applicantUser.phone_number,
+          photo: applicantUser.photo
+        } : null
+      }
+    });
+  } catch (err: any) {
+    console.error('[ERROR] getApplicationDetailsController:', err);
+    return c.json({ success: false, message: 'Server error', error: err.message }, 500);
   }
 };
