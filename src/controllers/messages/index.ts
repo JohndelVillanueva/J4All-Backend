@@ -47,6 +47,7 @@ export const getConversationsController = async (
             username: true,
             first_name: true,
             last_name: true,
+            photo: true, // Ensure photo is always selected
           },
         },
         participant2: {
@@ -55,6 +56,7 @@ export const getConversationsController = async (
             username: true,
             first_name: true,
             last_name: true,
+            photo: true, // Ensure photo is always selected
           },
         },
         messages: {
@@ -627,6 +629,7 @@ export const getConversationDetailsController = async (
             username: true,
             first_name: true,
             last_name: true,
+            photo: true, // Ensure photo is selected
           },
         },
         participant2: {
@@ -635,6 +638,7 @@ export const getConversationDetailsController = async (
             username: true,
             first_name: true,
             last_name: true,
+            photo: true, // Ensure photo is selected
           },
         },
         messages: {
