@@ -132,6 +132,8 @@ export const userLoginController = async (c: Context): Promise<Response> => {
     const invalidCredentials = {
       success: false,
       error: "Invalid email or password",
+      message: "The email or password you entered is incorrect. Please check your credentials and try again.",
+      code: "INVALID_CREDENTIALS"
     };
 
     if (!user) {
@@ -150,6 +152,8 @@ export const userLoginController = async (c: Context): Promise<Response> => {
         {
           success: false,
           error: `This account is not registered as ${userType}`,
+          message: `This email is registered as a ${user.user_type} account, not as ${userType}. Please use the correct login form.`,
+          code: "WRONG_USER_TYPE"
         },
         403
       );
@@ -160,8 +164,10 @@ export const userLoginController = async (c: Context): Promise<Response> => {
       return c.json(
         {
           success: false,
-          error: "Account not verified. Please check your email.",
+          error: "Account not verified",
+          message: "Your account has not been verified. Please check your email and click the verification link before logging in.",
           requiresVerification: true,
+          code: "ACCOUNT_NOT_VERIFIED"
         },
         403
       );
@@ -198,7 +204,9 @@ export const userLoginController = async (c: Context): Promise<Response> => {
     return c.json(
       {
         success: false,
-        error: "Internal server error",
+        error: "Login failed",
+        message: "An unexpected error occurred during login. Please try again.",
+        details: error instanceof Error ? error.message : "Unknown error",
       },
       500
     );
@@ -360,13 +368,16 @@ export const createUserController = async (c: Context) => {
   } catch (error: unknown) {
     console.error("Detailed error:", error);
 
+    // Handle Prisma unique constraint violations
     if ((error as any).code === "P2002") {
       const target = (error as any).meta?.target as string[];
       if (target.includes("email")) {
         return c.json(
           {
-        success: false,
-            error: "Email already in use",
+            success: false,
+            error: "Email already exists",
+            message: "This email address is already registered. Please use a different email or try logging in.",
+            code: "EMAIL_EXISTS"
           },
           409
         );
@@ -375,16 +386,45 @@ export const createUserController = async (c: Context) => {
         return c.json(
           {
             success: false,
-            error: "Username already in use",
+            error: "Username already taken",
+            message: "This username is already in use. Please choose a different username.",
+            code: "USERNAME_EXISTS"
           },
           409
         );
       }
     }
 
+    // Handle Prisma validation errors
+    if ((error as any).code === "P2003") {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid data",
+          message: "The provided data is invalid or references non-existent records.",
+          code: "INVALID_DATA"
+        },
+        400
+      );
+    }
+
+    // Handle other Prisma errors
+    if ((error as any).code) {
+      return c.json(
+        {
+          success: false,
+          error: "Database error",
+          message: "A database error occurred. Please try again.",
+          code: (error as any).code
+        },
+        500
+      );
+    }
+
     const errorResponse = {
       success: false,
-      error: "Internal server error",
+      error: "Registration failed",
+      message: "An unexpected error occurred during registration. Please try again.",
       details: error instanceof Error ? error.message : "Unknown error",
     };
     console.error(

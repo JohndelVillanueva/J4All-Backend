@@ -320,7 +320,13 @@ export const getUserApplicationsController = async (c: Context): Promise<Respons
                 select: {
                   id: true,
                   company_name: true,
-                  logo_path: true
+                  logo_path: true,
+                  contact_person: true, // HR name
+                  user: {
+                    select: {
+                      photo: true // Employer profile photo
+                    }
+                  }
                 }
               }
             }
@@ -353,7 +359,9 @@ export const getUserApplicationsController = async (c: Context): Promise<Respons
         type: app.job_listing.job_type || '',
         posted: app.job_listing.posted_date.toISOString().split('T')[0],
         workMode: app.job_listing.work_mode,
-        logo: app.job_listing.employer.logo_path
+        logo: app.job_listing.employer.logo_path,
+        hrName: app.job_listing.employer.contact_person,
+        hrPhoto: app.job_listing.employer.user?.photo
       },
       updates: [] // Placeholder for future updates feature
     }));
@@ -496,7 +504,8 @@ export const getEmployerApplicantsController = async (c: Context): Promise<Respo
         first_name: true,
         last_name: true,
         email: true,
-        phone_number: true
+        phone_number: true,
+        photo: true // Include user photo
       }
     });
 
@@ -514,6 +523,7 @@ export const getEmployerApplicantsController = async (c: Context): Promise<Respo
         name: user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Unknown Applicant' : 'Unknown Applicant',
         email: user?.email || 'No email',
         phone: user?.phone_number || 'No phone',
+        photo: user?.photo || null, // Add photo field
         position: app.job_listing.job_title,
         status: app.status.toLowerCase(),
         experience: app.seeker.experience_years ? `${app.seeker.experience_years} years` : 'Not specified',
