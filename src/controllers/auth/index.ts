@@ -1,11 +1,12 @@
 import { type Context } from "hono";
 import bcrypt, { hash } from "bcryptjs";
 import { z } from "zod"; // For validation
-import { PrismaClient, Prisma } from "@prisma/client";
 import { checkRateLimit } from "../../utils/rate-limit.js";
 import { generateToken, verifyPassword } from "../../utils/auth.js";
 import { authMiddleware } from '../../utils/auth.js';
 import { employerSignUpSchema } from "../../shared/shared-schema.js";
+import { emailService, sendDevelopmentEmail } from "../../services/emailService.js";
+import { prisma } from "../../db.js";
 
 import { writeFile } from "fs/promises";     // to save the file
 import fs from "fs";                        // to use fs.promises.mkdir
@@ -39,8 +40,7 @@ const CreateUserSchema = z.object({
 
 
 
-// Initialize Prisma client once (recommended to put this in a separate file)
-const prisma = new PrismaClient();
+
 
 // Enhanced error handler
 const handleError = (c: Context, error: unknown) => {
@@ -115,6 +115,15 @@ export const userLoginController = async (c: Context): Promise<Response> => {
     // Verify password
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) return c.json({ error: "Invalid credentials" }, 401);
+
+    // Check if account is verified (for both job seekers and employers)
+    if (!user.is_active) {
+      return c.json({ 
+        error: "Account not verified", 
+        message: "Please check your email and verify your account before logging in.",
+        code: "ACCOUNT_NOT_VERIFIED"
+      }, 401);
+    }
 
     // ✅ Update last_login (with error handling)
     try {
@@ -249,7 +258,7 @@ export const createEmployerController = async (c: Context) => {
           phone_number: user.phone,
           user_type: "employer",
           photo: photoPath,
-          is_active: true,
+          is_active: false, // Require email verification for employers too
         } as any,
       });
 
@@ -270,6 +279,41 @@ export const createEmployerController = async (c: Context) => {
       return { userRecord, employerRecord };
     });
 
+    // Create verification token and send email
+    try {
+      const verificationToken = crypto.randomBytes(32).toString("hex");
+      await prisma.verificationToken.create({
+        data: {
+          user_id: result.userRecord.id,
+          token: verificationToken,
+          expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+        },
+      });
+
+      // Send verification email
+      const userName = result.userRecord.first_name || result.userRecord.email.split('@')[0];
+      const emailSent = await emailService.sendVerificationEmail(
+        result.userRecord.email, 
+        userName, 
+        verificationToken
+      );
+
+      if (!emailSent && process.env.NODE_ENV === 'development') {
+        // Fallback for development - log the email content
+        const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
+        sendDevelopmentEmail(
+          result.userRecord.email,
+          'Verify Your J4IPWDs Account',
+          `Click this link to verify your account: ${verificationUrl}`,
+          `Click this link to verify your account: ${verificationUrl}`
+        );
+      }
+    } catch (tokenError) {
+      console.error("Error creating verification token or sending email:", tokenError);
+      // Continue even if token creation fails
+    }
+
     return c.json(
       {
         success: true,
@@ -277,6 +321,7 @@ export const createEmployerController = async (c: Context) => {
           userId: result.userRecord.id,
           employerId: result.employerRecord.id,
         },
+        message: "Employer account created successfully. Please check your email to verify your account.",
       },
       201
     );
@@ -312,5 +357,213 @@ export const getUserById = async (c: Context) => {
   } catch (error) {
     console.error("Error:", error);
     return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+// Email verification controller
+export const verifyEmailController = async (c: Context): Promise<Response> => {
+  try {
+    const { token } = await c.req.json();
+
+    if (!token) {
+      return c.json({
+        success: false,
+        error: "Verification token is required"
+      }, 400);
+    }
+
+    // Find the verification token
+    const verificationToken = await prisma.verificationToken.findUnique({
+      where: { token },
+      include: { user: true }
+    });
+
+    if (!verificationToken) {
+      return c.json({
+        success: false,
+        error: "Invalid verification token"
+      }, 400);
+    }
+
+    // Check if token is expired
+    if (verificationToken.expires < new Date()) {
+      // Delete expired token
+      await prisma.verificationToken.delete({
+        where: { id: verificationToken.id }
+      });
+
+      return c.json({
+        success: false,
+        error: "Verification token has expired",
+        message: "Please request a new verification email"
+      }, 400);
+    }
+
+    // Activate the user account
+    await prisma.user.update({
+      where: { id: verificationToken.user_id },
+      data: { is_active: true }
+    });
+
+    // Delete the used token
+    await prisma.verificationToken.delete({
+      where: { id: verificationToken.id }
+    });
+
+    return c.json({
+      success: true,
+      message: "Email verified successfully! You can now log in to your account."
+    });
+
+  } catch (error) {
+    console.error("Email verification error:", error);
+    return c.json({
+      success: false,
+      error: "Verification failed",
+      message: "An error occurred during verification. Please try again."
+    }, 500);
+  }
+};
+
+// Resend verification email controller
+export const resendVerificationController = async (c: Context): Promise<Response> => {
+  try {
+    const { email } = await c.req.json();
+
+    if (!email) {
+      return c.json({
+        success: false,
+        error: "Email is required"
+      }, 400);
+    }
+
+    // Find the user
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (!user) {
+      return c.json({
+        success: false,
+        error: "User not found"
+      }, 404);
+    }
+
+    // Check if user is already verified
+    if (user.is_active) {
+      return c.json({
+        success: false,
+        error: "Account already verified",
+        message: "Your account is already verified. You can log in normally."
+      }, 400);
+    }
+
+    // Delete any existing verification tokens for this user
+    await prisma.verificationToken.deleteMany({
+      where: { user_id: user.id }
+    });
+
+    // Create new verification token
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    await prisma.verificationToken.create({
+      data: {
+        user_id: user.id,
+        token: verificationToken,
+        expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+      },
+    });
+
+    // Send verification email
+    const userName = user.first_name || user.email.split('@')[0];
+    const emailSent = await emailService.sendVerificationEmail(
+      user.email, 
+      userName, 
+      verificationToken
+    );
+
+    if (!emailSent && process.env.NODE_ENV === 'development') {
+      // Fallback for development - log the email content
+      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
+      sendDevelopmentEmail(
+        user.email,
+        'Verify Your J4IPWDs Account',
+        `Click this link to verify your account: ${verificationUrl}`,
+        `Click this link to verify your account: ${verificationUrl}`
+      );
+    }
+
+    return c.json({
+      success: true,
+      message: emailSent 
+        ? "Verification email sent successfully" 
+        : "Account created. Please check your email for verification link.",
+      // Remove this in production - only for development
+      token: process.env.NODE_ENV === 'development' ? verificationToken : undefined
+    });
+
+  } catch (error) {
+    console.error("Resend verification error:", error);
+    return c.json({
+      success: false,
+      error: "Failed to resend verification email",
+      message: "An error occurred. Please try again later."
+    }, 500);
+  }
+};
+
+// Test email configuration endpoint
+export const testEmailController = async (c: Context): Promise<Response> => {
+  try {
+    // Test connection first
+    const connectionTest = await emailService.testConnection();
+    
+    if (!connectionTest) {
+      return c.json({
+        success: false,
+        error: "Email connection failed",
+        message: "Check your SMTP configuration in .env file"
+      }, 500);
+    }
+
+    // Try to send a test email
+    const testEmail = process.env.SMTP_USER || 'test@example.com';
+    const testResult = await emailService.sendVerificationEmail(
+      testEmail,
+      'Test User',
+      'test-token-123'
+    );
+
+    return c.json({
+      success: true,
+      message: "Email test completed",
+      connection: connectionTest,
+      emailSent: testResult,
+      config: {
+        host: process.env.SMTP_HOST,
+        port: process.env.SMTP_PORT,
+        user: process.env.SMTP_USER,
+        // Don't expose password in response
+        hasPassword: !!process.env.SMTP_PASS,
+        frontendUrl: process.env.FRONTEND_URL,
+        nodeEnv: process.env.NODE_ENV
+      }
+    });
+
+  } catch (error) {
+    console.error("Email test error:", error);
+    return c.json({
+      success: false,
+      error: "Email test failed",
+      message: error instanceof Error ? error.message : "Unknown error",
+      config: {
+        host: process.env.SMTP_HOST,
+        port: process.env.SMTP_PORT,
+        user: process.env.SMTP_USER,
+        hasPassword: !!process.env.SMTP_PASS,
+        frontendUrl: process.env.FRONTEND_URL,
+        nodeEnv: process.env.NODE_ENV
+      }
+    }, 500);
   }
 };

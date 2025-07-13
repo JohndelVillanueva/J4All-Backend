@@ -13,7 +13,7 @@
 // app.post('/api/createEmployer', createEmployerController) // Assuming you have a createEmployer controller
 
 // // Health Check
-// app.get('/', (c) => c.text('J4All API is running'))
+// app.get('/', (c) => c.text('J4IPWDs API is running'))
 
 // export default {
 //   fetch: app.fetch

@@ -311,7 +311,8 @@ export const createUserController = async (c: Context) => {
             user_type: userData.user_type,
             first_name: userData.first_name,
             last_name: userData.last_name,
-            phone_number: userData.phone_number
+            phone_number: userData.phone_number,
+            is_active: userData.user_type === 'employer' ? true : false // Only employers are active by default
             // address: userData.address, // REMOVED, not in Prisma schema
           },
         });
@@ -335,7 +336,7 @@ export const createUserController = async (c: Context) => {
       await PhotoService.updateUserPhoto(user.id, photoFile, photoFile.name);
     }
 
-    // 6. Create email verification token
+    // 6. Create email verification token and send email
     try {
       const verificationToken = crypto.randomBytes(32).toString("hex");
       await prisma.verificationToken.create({
@@ -343,10 +344,33 @@ export const createUserController = async (c: Context) => {
           user_id: user.id,
           token: verificationToken,
           expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      },
-    });
+        },
+      });
+
+      // Import email service dynamically to avoid circular dependencies
+      const { emailService, sendDevelopmentEmail } = await import("../../services/emailService.js");
+      
+      // Send verification email
+      const userName = user.first_name || user.email.split('@')[0];
+      const emailSent = await emailService.sendVerificationEmail(
+        user.email, 
+        userName, 
+        verificationToken
+      );
+
+      if (!emailSent && process.env.NODE_ENV === 'development') {
+        // Fallback for development - log the email content
+        const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
+        sendDevelopmentEmail(
+          user.email,
+          'Verify Your J4IPWDs Account',
+          `Click this link to verify your account: ${verificationUrl}`,
+          `Click this link to verify your account: ${verificationUrl}`
+        );
+      }
     } catch (tokenError) {
-      console.error("Error creating verification token:", tokenError);
+      console.error("Error creating verification token or sending email:", tokenError);
       // Continue even if token creation fails
     }
 
