@@ -596,7 +596,7 @@ export const getAllJobListingController = async (
     const employerUserIds = Array.from(new Set(jobListings.map(j => j.employer?.user_id).filter(Boolean)));
     const employerUsers = await prisma.user.findMany({
       where: { id: { in: employerUserIds } },
-      select: { id: true, first_name: true, last_name: true }
+      select: { id: true, first_name: true, last_name: true, photo: true }
     });
     const employerUserMap = new Map(employerUsers.map(u => [u.id, u]));
     
@@ -647,7 +647,7 @@ export const getAllJobListingController = async (
         })),
         hrFirstName: employerUser?.first_name || '',
         hrLastName: employerUser?.last_name || '',
-        
+        hrPhoto: employerUser?.photo || null,
       };
       
     })
