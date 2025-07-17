@@ -1131,6 +1131,46 @@ export const updateApplicationStatusController = async (c: Context): Promise<Res
         }
       });
 
+      // --- Send chat message to applicant if hired or rejected ---
+      const employerUser = await prisma.user.findUnique({ where: { id: employer.user_id } });
+      const applicantUser = await prisma.user.findUnique({ where: { id: application.seeker.user_id } });
+      if (employerUser && applicantUser) {
+        // Find or create conversation
+        let conversation = await prisma.conversation.findFirst({
+          where: {
+            OR: [
+              { participant1_id: employerUser.id, participant2_id: applicantUser.id },
+              { participant1_id: applicantUser.id, participant2_id: employerUser.id }
+            ]
+          }
+        });
+        if (!conversation) {
+          conversation = await prisma.conversation.create({
+            data: {
+              participant1_id: employerUser.id,
+              participant2_id: applicantUser.id
+            }
+          });
+        }
+        let content = "";
+        if (status.toUpperCase() === "HIRED") {
+          content = `Congratulations! You have been hired for the position \"${application.job_listing.job_title}\" at ${application.job_listing.employer.company_name}.`;
+        } else if (status.toUpperCase() === "REJECTED") {
+          content = `We regret to inform you that your application for \"${application.job_listing.job_title}\" at ${application.job_listing.employer.company_name} was not successful.`;
+        }
+        if (content) {
+          await prisma.message.create({
+            data: {
+              conversation_id: conversation.id,
+              sender_id: employerUser.id,
+              receiver_id: applicantUser.id,
+              content
+            }
+          });
+        }
+      }
+      // --- End chat message ---
+
       console.log('[INFO] Status update notification sent to job seeker');
     } catch (notificationError) {
       console.error('[ERROR] Failed to send status update notification:', notificationError);

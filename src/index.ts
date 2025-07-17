@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { auth, jobPosting, routes, skill, applicant, notifications, messages, photos } from './controllers/routes.js'
+import { auth, jobPosting, routes, skill, applicant, notifications, messages, photos, interview } from './controllers/routes.js'
 import { serveStatic } from 'hono/serve-static';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import path from 'path';
@@ -59,6 +59,7 @@ const mountRoutes = (routes: readonly any[], prefix: string = '/api') => {
 // Mount all route groups
 mountRoutes(routes);
 mountRoutes(auth);
+mountRoutes(interview, '/api/interview');
 mountRoutes(skill);
 mountRoutes(jobPosting);
 mountRoutes(applicant);

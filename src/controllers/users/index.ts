@@ -624,3 +624,29 @@ export function updateUserController(c: Context) {
   return c.json({ message: "Hello, world!" });
 }               
 
+// GET /api/users/employer-by-user/:userId
+export const getEmployerByUserId = async (c: Context) => {
+  const userId = Number(c.req.param('userId'));
+  if (!userId) {
+    return c.json({ success: false, error: 'Missing userId' }, 400);
+  }
+  const employer = await prisma.employer.findUnique({ where: { user_id: userId } });
+  if (!employer) {
+    return c.json({ success: false, error: 'Employer not found for this user' }, 404);
+  }
+  return c.json({ success: true, employer });
+};               
+
+// GET /api/jobseeker-by-user/:userId
+export const getJobSeekerByUserId = async (c: Context) => {
+  const userId = Number(c.req.param('userId'));
+  if (!userId) {
+    return c.json({ success: false, error: 'Missing userId' }, 400);
+  }
+  const jobSeeker = await prisma.jobSeeker.findUnique({ where: { user_id: userId } });
+  if (!jobSeeker) {
+    return c.json({ success: false, error: 'JobSeeker not found for this user' }, 404);
+  }
+  return c.json({ success: true, jobSeeker });
+};               
+
