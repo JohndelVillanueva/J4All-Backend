@@ -348,7 +348,10 @@ export const getUserById = async (c: Context) => {
         email: true,
         first_name: true,
         last_name: true,
-        user_type: true
+        user_type: true,
+        phone_number: true, // Added
+        photo: true,        // Added (for avatar)
+        username: true      // Added (for username)
       }
     });
 
