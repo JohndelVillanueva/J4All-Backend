@@ -2,7 +2,7 @@ import { Hono } from "hono";
 // import {
 
 // } from "./index.js";
-import  { applyForJobController, getUserApplicationsController, getEmployerApplicantsController, saveJobController, unsaveJobController, getSavedJobsController, updateApplicationStatusController, getApplicationDetailsController } from "./index.js";
+import  { applyForJobController, getUserApplicationsController, getEmployerApplicantsController, saveJobController, unsaveJobController, getSavedJobsController, updateApplicationStatusController, getApplicationDetailsController, getApplicantProfileController } from "./index.js";
 import { authMiddleware } from "../../utils/auth.js";
 
 const applicant = new Hono()
@@ -11,6 +11,7 @@ const applicant = new Hono()
   .get('/applications', authMiddleware, getUserApplicationsController)
   .get('/applications/:id', getApplicationDetailsController)
   .get('/employer-applicants', authMiddleware, getEmployerApplicantsController)
+  .get('/applicant-profile', authMiddleware, getApplicantProfileController)
   .post('/save-job', authMiddleware, saveJobController)
   .delete('/unsave-job', authMiddleware, unsaveJobController)
   .get('/saved-jobs', authMiddleware, getSavedJobsController)

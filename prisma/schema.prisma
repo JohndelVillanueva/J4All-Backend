@@ -110,6 +110,7 @@ model JobSeeker {
   desired_job_title   String?
   desired_salary      Float?
   location_preference String?
+  disability          String? // Optional disability field
 
   applications JobApplication[] @relation("SeekerApplications")
   skills       JobSeekerSkill[]

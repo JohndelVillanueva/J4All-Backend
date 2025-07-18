@@ -1264,3 +1264,171 @@ export const getApplicationDetailsController = async (c: Context): Promise<Respo
     return c.json({ success: false, message: 'Server error', error: err.message }, 500);
   }
 };
+
+// Get detailed applicant profile information
+export const getApplicantProfileController = async (c: Context): Promise<Response> => {
+  try {
+    console.log('[DEBUG] Starting to fetch applicant profile');
+
+    // Get and verify token
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('[ERROR] Missing or invalid Authorization header');
+      return c.json({ 
+        success: false, 
+        error: "Missing or invalid authorization" 
+      }, 401);
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const verifiedToken = await verifyToken(token);
+    
+    if (!verifiedToken || !verifiedToken.userId) {
+      console.error('[ERROR] Invalid or expired token');
+      return c.json({ 
+        success: false, 
+        error: "Invalid authorization token" 
+      }, 401);
+    }
+
+    const userId = verifiedToken.userId;
+
+    // Find the Employer profile for this user
+    const employer = await prisma.employer.findUnique({
+      where: { user_id: userId }
+    });
+    
+    if (!employer) {
+      console.log('[INFO] No Employer profile found for user:', userId);
+      return c.json({ 
+        success: false, 
+        error: "Only employers can view applicant profiles" 
+      }, 403);
+    }
+
+    // Get applicant user ID from query parameter
+    const { applicantUserId } = c.req.query();
+    
+    if (!applicantUserId) {
+      return c.json({ 
+        success: false, 
+        error: "Applicant user ID is required" 
+      }, 400);
+    }
+
+    const applicantUserIdNum = parseInt(applicantUserId);
+    if (isNaN(applicantUserIdNum)) {
+      return c.json({ 
+        success: false, 
+        error: "Invalid applicant user ID format" 
+      }, 400);
+    }
+
+    // Fetch user data
+    const user = await prisma.user.findUnique({
+      where: { id: applicantUserIdNum },
+      select: {
+        id: true,
+        first_name: true,
+        last_name: true,
+        email: true,
+        phone_number: true,
+        photo: true,
+        user_type: true,
+        created_at: true,
+        last_login: true
+      }
+    });
+
+    if (!user) {
+      return c.json({ 
+        success: false, 
+        error: "Applicant not found" 
+      }, 404);
+    }
+
+    // Fetch job seeker data
+    const jobSeeker = await prisma.jobSeeker.findUnique({
+      where: { user_id: applicantUserIdNum },
+      include: {
+        skills: {
+          include: {
+            skill: {
+              select: {
+                id: true,
+                name: true,
+                category: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!jobSeeker) {
+      return c.json({ 
+        success: false, 
+        error: "Job seeker profile not found" 
+      }, 404);
+    }
+
+    // Transform skills data
+    const skills = jobSeeker.skills.map(seekerSkill => ({
+      id: seekerSkill.skill.id,
+      name: seekerSkill.skill.name,
+      category: seekerSkill.skill.category,
+      proficiency_level: seekerSkill.proficiency_level,
+      years_of_experience: seekerSkill.years_of_experience
+    }));
+
+    // Return combined profile data
+    return c.json({
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          email: user.email,
+          phone_number: user.phone_number,
+          photo: user.photo,
+          user_type: user.user_type,
+          created_at: user.created_at,
+          last_login: user.last_login
+        },
+        jobSeeker: {
+          id: jobSeeker.id,
+          resume_text: jobSeeker.resume_text,
+          resume_file_path: jobSeeker.resume_file_path,
+          education: jobSeeker.education,
+          experience_years: jobSeeker.experience_years,
+          current_job_title: jobSeeker.current_job_title,
+          desired_job_title: jobSeeker.desired_job_title,
+          desired_salary: jobSeeker.desired_salary,
+          location_preference: jobSeeker.location_preference,
+          disability: jobSeeker.disability,
+          skills: skills
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('[ERROR] Error fetching applicant profile:', error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return c.json({ 
+        success: false,
+        error: "Database error occurred" 
+      }, 500);
+    }
+    if (error instanceof Error) {
+      return c.json({ 
+        success: false,
+        error: error.message || "Internal server error" 
+      }, 500);
+    }
+    return c.json({ 
+      success: false,
+      error: "Internal server error" 
+    }, 500);
+  }
+};
