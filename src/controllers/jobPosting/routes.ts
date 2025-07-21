@@ -5,7 +5,8 @@ import {
   updateJobPostingController,
   deleteJobPostingController,
   getJobListingController,
-  getAllJobListingController
+  getAllJobListingController,
+  deactivateExpiredJobsController
 } from './index.js';
 import { authMiddleware } from '../../utils/auth.js';
 
@@ -17,5 +18,6 @@ const jobPosting = new Hono()
 .put('/jobs/:id', updateJobPostingController)
 .get('/jobs/:id', getJobPostingController)
 .delete('/jobs/:id', deleteJobPostingController)
+.post('/jobs/deactivate-expired', authMiddleware, deactivateExpiredJobsController)
 
 export default jobPosting;

@@ -875,3 +875,38 @@ export const deleteJobPostingController = async (
     );
   }
 };
+
+export const deactivateExpiredJobsController = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    console.log('DeactivateExpiredJobsController - User:', user);
+    const userType = user.user_type || user.userType;
+    if (!user || userType !== "employer") {
+      console.log('Unauthorized: Not an employer or not logged in');
+      return c.json({ success: false, error: "Unauthorized" }, 403);
+    }
+    // Find the employer record for this user
+    const employer = await prisma.employer.findUnique({
+      where: { user_id: user.id }
+    });
+    console.log('DeactivateExpiredJobsController - Employer:', employer);
+    if (!employer) {
+      console.log('Employer not found for user:', user.id);
+      return c.json({ success: false, error: "Employer not found" }, 404);
+    }
+    const now = new Date();
+    const result = await prisma.jobListing.updateMany({
+      where: {
+        employer_id: employer.id,
+        expiration_date: { lte: now },
+        is_active: true,
+      },
+      data: { is_active: false },
+    });
+    console.log('Deactivated jobs count:', result.count);
+    return c.json({ success: true, deactivated: result.count });
+  } catch (err: any) {
+    console.error('Error in deactivateExpiredJobsController:', err);
+    return c.json({ success: false, error: err.message }, 500);
+  }
+};
