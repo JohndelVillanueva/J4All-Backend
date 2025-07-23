@@ -17,6 +17,7 @@ const createTransporter = () => {
 };
 
 // Email templates
+
 const getVerificationEmailTemplate = (userName: string, verificationUrl: string) => ({
   subject: 'Verify Your J4IPWDs Account',
   html: `
@@ -89,6 +90,46 @@ const getVerificationEmailTemplate = (userName: string, verificationUrl: string)
     If you have any questions, please contact us at support@j4ipwds.com
   `
 });
+
+const getPasswordResetEmailTemplate = (userName: string, resetUrl: string) => ({
+  subject: 'J4IPWDs - Password Reset Request',
+  html: `
+    <html>
+    <body>
+      <h2>Password Reset Request</h2>
+      <p>Hi ${userName},</p>
+      <p>You requested a password reset for your J4IPWDs account.</p>
+      <p>
+        <a href="${resetUrl}" style="background:#667eea;color:white;padding:10px 20px;text-decoration:none;border-radius:5px;">Reset Password</a>
+      </p>
+      <p>If the button above doesn't work, copy and paste this link into your browser:</p>
+      <p style="word-break:break-all;color:#667eea;">${resetUrl}</p>
+      <p>This link will expire in 1 hour.</p>
+      <p>If you didn't request this, you can ignore this email.</p>
+      <p>Best regards,<br>The J4IPWDs Team</p>
+    </body>
+    </html>
+  `,
+  text: `
+    Password Reset Request
+
+    Hi ${userName},
+
+    You requested a password reset for your J4IPWDs account.
+
+    Reset your password using this link:
+    ${resetUrl}
+
+    This link will expire in 1 hour.
+
+    If you didn't request this, you can ignore this email.
+
+    Best regards,
+    The J4IPWDs Team
+  `
+});
+
+
 
 const getResendVerificationEmailTemplate = (userName: string, verificationUrl: string) => ({
   subject: 'J4IPWDs - New Verification Email',
@@ -169,6 +210,30 @@ export class EmailService {
   constructor() {
     this.transporter = createTransporter();
   }
+
+  // Add this method inside your EmailService class:
+async sendPasswordResetEmail(userEmail: string, userName: string, resetToken: string): Promise<boolean> {
+  try {
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
+    const emailTemplate = getPasswordResetEmailTemplate(userName, resetUrl);
+
+    const mailOptions = {
+      from: `"J4IPWDs" <${emailConfig.auth.user}>`,
+      to: userEmail,
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text,
+    };
+
+    const result = await this.transporter.sendMail(mailOptions);
+    console.log('Password reset email sent successfully:', result.messageId);
+    return true;
+  } catch (error) {
+    console.error('Failed to send password reset email:', error);
+    return false;
+  }
+}
 
   // Send verification email
   async sendVerificationEmail(userEmail: string, userName: string, verificationToken: string): Promise<boolean> {

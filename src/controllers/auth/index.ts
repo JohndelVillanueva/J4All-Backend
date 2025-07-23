@@ -363,6 +363,124 @@ export const getUserById = async (c: Context) => {
   }
 };
 
+export const forgotPasswordController = async (c: Context): Promise<Response> => {
+  try {
+    const { email } = await c.req.json();
+
+    // Validate input
+    if (!email) {
+      return c.json({ error: "Email is required" }, 400);
+    }
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    // Always return success to prevent email enumeration
+    if (!user) {
+      return c.json({
+        success: true,
+        message: "If an account with that email exists, a reset link has been sent"
+      });
+    }
+
+    // Delete any existing password reset tokens for this user
+    await prisma.verificationToken.deleteMany({
+      where: { user_id: user.id }
+    });
+
+    // Generate reset token and expiry (1 hour)
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000);
+
+    // Store token in VerificationToken table
+    await prisma.verificationToken.create({
+      data: {
+        user_id: user.id,
+        token: resetToken,
+        expires: resetTokenExpiry,
+      }
+    });
+
+    // You can use the raw token in the reset link
+    await emailService.sendPasswordResetEmail(
+  user.email,
+  user.first_name || user.username || "User",
+  resetToken
+);
+
+    return c.json({
+      success: true,
+      message: "If an account with that email exists, a reset link has been sent"
+    });
+
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    return c.json({ error: "Error processing password reset request" }, 500);
+  }
+};
+
+export const resetPasswordController = async (c: Context): Promise<Response> => {
+  try {
+    const { token, password } = await c.req.json();
+
+    // Validate input
+    if (!token || !password) {
+      return c.json({ error: "Token and new password are required" }, 400);
+    }
+
+    // Find the verification token
+    const verificationToken = await prisma.verificationToken.findUnique({
+      where: { token },
+      include: { user: true }
+    });
+
+    if (!verificationToken || verificationToken.expires < new Date()) {
+      // Delete expired token if found
+      if (verificationToken) {
+        await prisma.verificationToken.delete({ where: { id: verificationToken.id } });
+      }
+      return c.json({ error: "Invalid or expired token" }, 400);
+    }
+
+    // Hash new password
+    const hashedPassword = await hash(password, 12);
+
+    // Update user's password
+    await prisma.user.update({
+      where: { id: verificationToken.user_id },
+      data: {
+        password_hash: hashedPassword,
+      }
+    });
+
+    // Delete the used token
+    await prisma.verificationToken.delete({
+      where: { id: verificationToken.id }
+    });
+
+    // Send confirmation email
+    await sendEmail({
+      to: verificationToken.user.email,
+      subject: 'Password Changed Successfully',
+      html: `
+        <p>Your password has been successfully changed.</p>
+        <p>If you didn't make this change, please contact our support team immediately.</p>
+      `
+    });
+
+    return c.json({
+      success: true,
+      message: "Password updated successfully"
+    });
+
+  } catch (error) {
+    console.error("Reset password error:", error);
+    return c.json({ error: "Error resetting password" }, 500);
+  }
+};
+
 // Email verification controller
 export const verifyEmailController = async (c: Context): Promise<Response> => {
   try {

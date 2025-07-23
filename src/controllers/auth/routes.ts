@@ -6,6 +6,7 @@ import {
   verifyEmailController,
   resendVerificationController,
   testEmailController,
+  forgotPasswordController
 } from "./index.js";
 import { authMiddleware } from "../../utils/auth.js";
 
@@ -15,6 +16,7 @@ const auth = new Hono()
   .post("/createEmployer", createEmployerController)
   .post("/verify-email", verifyEmailController)
   .post("/resend-verification", resendVerificationController)
+  .post("/forgot-password", forgotPasswordController)
   .get("/test-email", testEmailController)
 
 export default auth;
