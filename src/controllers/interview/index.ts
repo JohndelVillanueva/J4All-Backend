@@ -51,6 +51,20 @@ export const scheduleInterviewController = async (c: Context): Promise<Response>
         data: { status: 'interview' },
       });
 
+      // Log activity (best-effort)
+      try {
+        await (prisma as any).activity?.create({
+          data: {
+            type: 'interview',
+            application_id: Number(applicationId),
+            employer_id: Number(employerId),
+            seeker_id: Number(seekerId),
+            title: 'Interview scheduled',
+            description: `Date: ${new Date(date).toISOString()} Time: ${time} Location: ${location}`,
+          }
+        });
+      } catch {}
+
       // Create a notification for the job seeker
       // Fetch job seeker info
       const jobSeeker = await prisma.jobSeeker.findUnique({

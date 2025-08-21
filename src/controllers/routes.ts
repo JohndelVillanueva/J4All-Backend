@@ -7,6 +7,7 @@ import notificationRoutes from './notifications/routes.js';
 import messageRoutes from './messages/routes.js';
 import photoRoutes from './users/photoRoutes.js';
 import interviewRoutes from './interview/routes.js';
+import adminRoutes from './admin/routes.js';
 
 export const routes = [usersRoutes] as const;
 export const auth = [authRoutes] as const;
@@ -17,6 +18,7 @@ export const notifications = [notificationRoutes] as const;
 export const messages = [messageRoutes] as const;
 export const photos = [photoRoutes] as const;
 export const interview = [interviewRoutes] as const;
+export const admin = [adminRoutes] as const;
 
 export type AppRouter = (typeof routes)[number];
 

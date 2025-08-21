@@ -147,6 +147,22 @@ export const applyForJobController = async (c: Context): Promise<Response> => {
       }
     });
 
+    // Log activity (best-effort)
+    try {
+      await (prisma as any).activity?.create({
+        data: {
+          type: 'application',
+          seeker_id: seekerId,
+          employer_id: employerId,
+          job_id: jobListingId,
+          application_id: application.id,
+          title: 'Application submitted',
+          description: `Seeker ${seekerId} applied to ${application.job_listing.job_title}`,
+          status: 'applied',
+        }
+      });
+    } catch {}
+
     // Get applicant information for notification
     const applicantUser = await prisma.user.findUnique({
       where: { id: userId },
@@ -1107,6 +1123,23 @@ export const updateApplicationStatusController = async (c: Context): Promise<Res
         notes: notes || null
       }
     });
+
+    // Log activity for status update (best-effort)
+    try {
+      const normalized = status.toUpperCase() === 'HIRED' ? 'approved' : status.toUpperCase() === 'REJECTED' ? 'declined' : 'applied';
+      await (prisma as any).activity?.create({
+        data: {
+          type: 'application',
+          seeker_id: application.seeker_id,
+          employer_id: application.employer_id,
+          job_id: application.job_id,
+          application_id: application.id,
+          title: 'Application status updated',
+          description: `Status: ${status}`,
+          status: normalized,
+        }
+      });
+    } catch {}
 
     // Send notification to job seeker about status change
     try {

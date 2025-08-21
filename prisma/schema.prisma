@@ -266,3 +266,24 @@ model Interview {
   employer    Employer       @relation(fields: [employerId], references: [id])
   seeker      JobSeeker      @relation(fields: [seekerId], references: [id])
 }
+
+model Activity {
+  id               Int      @id @default(autoincrement())
+  type             String
+  actor_user_id    Int?
+  target_user_id   Int?
+  employer_id      Int?
+  seeker_id        Int?
+  job_id           Int?
+  application_id   Int?
+  conversation_id  Int?
+  title            String
+  description      String?
+  status           String?
+  metadata         Json?
+  created_at       DateTime @default(now())
+
+  @@index([created_at])
+  @@index([type])
+  @@map("activities")
+}

@@ -477,6 +477,23 @@ export const sendMessageController = async (
       },
     });
 
+    // Write to activities (best-effort)
+    try {
+      const actor = message.sender.first_name && message.sender.last_name ? `${message.sender.first_name} ${message.sender.last_name}` : message.sender.username;
+      await (prisma as any).activity?.create({
+        data: {
+          type: 'message',
+          actor_user_id: message.sender.id,
+          target_user_id: message.receiver.id,
+          conversation_id: conversationId,
+          title: `${actor} messaged ${message.receiver.username || message.receiver.id}`,
+          description: message.content.slice(0, 120),
+        }
+      });
+    } catch (e) {
+      console.warn('[ACTIVITY] Failed to log message activity:', e);
+    }
+
     // Send notification to receiver (stored in database but not shown in general notification bar)
     try {
       const senderName = message.sender.first_name && message.sender.last_name

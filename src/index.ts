@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { auth, jobPosting, routes, skill, applicant, notifications, messages, photos, interview } from './controllers/routes.js'
+import { auth, jobPosting, routes, skill, applicant, notifications, messages, photos, interview, admin } from './controllers/routes.js'
 import { serveStatic } from 'hono/serve-static';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import path from 'path';
@@ -68,6 +68,7 @@ mountRoutes(applicant);
 mountRoutes(notifications, '/api/notifications');
 mountRoutes(messages, '/api/messages');
 mountRoutes(photos, '/api/photos');
+mountRoutes(admin, '/api/admin');
 
 // Health check route
 app.get('/health', (c) => {
