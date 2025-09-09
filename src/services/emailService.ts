@@ -6,8 +6,8 @@ const emailConfig = {
   port: parseInt(process.env.SMTP_PORT || '587'),
   secure: false, // true for 465, false for other ports
   auth: {
-    user: process.env.SMTP_USER || 'your-email@gmail.com',
-    pass: process.env.SMTP_PASS || 'your-app-password',
+    user: process.env.SMTP_USER || 'j4pwdsno.reply@gmail.com',
+    pass: process.env.SMTP_PASS || 'cvox wkzx tnxz ajod',
   },
 };
 
@@ -19,14 +19,14 @@ const createTransporter = () => {
 // Email templates
 
 const getVerificationEmailTemplate = (userName: string, verificationUrl: string) => ({
-  subject: 'Verify Your J4IPWDs Account',
+  subject: 'Verify Your J4PWDs Account',
   html: `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Verify Your J4IPWDs Account</title>
+              <title>Verify Your J4PWDs Account</title>
       <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -40,12 +40,12 @@ const getVerificationEmailTemplate = (userName: string, verificationUrl: string)
     <body>
       <div class="container">
         <div class="header">
-                  <div class="logo">J4IPWDs</div>
-        <h1>Welcome to J4IPWDs!</h1>
+                  <div class="logo">J4PWDs</div>
+        <h1>Welcome to J4PWDs!</h1>
         </div>
         <div class="content">
           <h2>Hi ${userName},</h2>
-                      <p>Thank you for creating your account with J4IPWDs! To complete your registration and start accessing personalized opportunities, please verify your email address.</p>
+                      <p>Thank you for creating your account with J4PWDs! To complete your registration and start accessing personalized opportunities, please verify your email address.</p>
           
           <div style="text-align: center;">
             <a href="${verificationUrl}" class="button">Verify Email Address</a>
@@ -56,49 +56,49 @@ const getVerificationEmailTemplate = (userName: string, verificationUrl: string)
           
           <p><strong>Important:</strong> This verification link will expire in 24 hours for security reasons.</p>
           
-          <p>If you didn't create an account with J4IPWDs, you can safely ignore this email.</p>
+          <p>If you didn't create an account with J4PWDs, you can safely ignore this email.</p>
           
-          <p>Best regards,<br>The J4IPWDs Team</p>
+          <p>Best regards,<br>The J4PWDs Team</p>
         </div>
         <div class="footer">
-          <p>This email was sent to you because you registered for a J4IPWDs account.</p>
-          <p>If you have any questions, please contact us at support@j4ipwds.com</p>
+          <p>This email was sent to you because you registered for a J4PWDs account.</p>
+          <p>If you have any questions, please contact us at support@J4PWDs.com</p>
         </div>
       </div>
     </body>
     </html>
   `,
   text: `
-    Welcome to J4IPWDs!
+    Welcome to J4PWDs!
     
     Hi ${userName},
     
-    Thank you for creating your account with J4IPWDs! To complete your registration and start accessing personalized opportunities, please verify your email address.
+    Thank you for creating your account with J4PWDs! To complete your registration and start accessing personalized opportunities, please verify your email address.
     
     Click the following link to verify your email:
     ${verificationUrl}
     
     This verification link will expire in 24 hours for security reasons.
     
-    If you didn't create an account with J4IPWDs, you can safely ignore this email.
+    If you didn't create an account with J4PWDs, you can safely ignore this email.
     
     Best regards,
-    The J4IPWDs Team
+    The J4PWDs Team
     
     ---
-    This email was sent to you because you registered for a J4IPWDs account.
-    If you have any questions, please contact us at support@j4ipwds.com
+    This email was sent to you because you registered for a J4PWDs account.
+    If you have any questions, please contact us at support@J4PWDs.com
   `
 });
 
 const getPasswordResetEmailTemplate = (userName: string, resetUrl: string) => ({
-  subject: 'J4IPWDs - Password Reset Request',
+  subject: 'J4PWDs - Password Reset Request',
   html: `
     <html>
     <body>
       <h2>Password Reset Request</h2>
       <p>Hi ${userName},</p>
-      <p>You requested a password reset for your J4IPWDs account.</p>
+      <p>You requested a password reset for your J4PWDs account.</p>
       <p>
         <a href="${resetUrl}" style="background:#667eea;color:white;padding:10px 20px;text-decoration:none;border-radius:5px;">Reset Password</a>
       </p>
@@ -106,7 +106,7 @@ const getPasswordResetEmailTemplate = (userName: string, resetUrl: string) => ({
       <p style="word-break:break-all;color:#667eea;">${resetUrl}</p>
       <p>This link will expire in 1 hour.</p>
       <p>If you didn't request this, you can ignore this email.</p>
-      <p>Best regards,<br>The J4IPWDs Team</p>
+      <p>Best regards,<br>The J4PWDs Team</p>
     </body>
     </html>
   `,
@@ -115,7 +115,7 @@ const getPasswordResetEmailTemplate = (userName: string, resetUrl: string) => ({
 
     Hi ${userName},
 
-    You requested a password reset for your J4IPWDs account.
+    You requested a password reset for your J4PWDs account.
 
     Reset your password using this link:
     ${resetUrl}
@@ -125,21 +125,21 @@ const getPasswordResetEmailTemplate = (userName: string, resetUrl: string) => ({
     If you didn't request this, you can ignore this email.
 
     Best regards,
-    The J4IPWDs Team
+    The J4PWDs Team
   `
 });
 
 
 
 const getResendVerificationEmailTemplate = (userName: string, verificationUrl: string) => ({
-  subject: 'J4IPWDs - New Verification Email',
+  subject: 'J4PWDs - New Verification Email',
   html: `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>New Verification Email - J4IPWDs</title>
+      <title>New Verification Email - J4PWDs</title>
       <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -153,12 +153,12 @@ const getResendVerificationEmailTemplate = (userName: string, verificationUrl: s
     <body>
       <div class="container">
         <div class="header">
-          <div class="logo">J4IPWDs</div>
+          <div class="logo">J4PWDs</div>
           <h1>New Verification Email</h1>
         </div>
         <div class="content">
           <h2>Hi ${userName},</h2>
-          <p>You requested a new verification email for your J4IPWDs account. Here's your new verification link:</p>
+          <p>You requested a new verification email for your J4PWDs account. Here's your new verification link:</p>
           
           <div style="text-align: center;">
             <a href="${verificationUrl}" class="button">Verify Email Address</a>
@@ -171,22 +171,22 @@ const getResendVerificationEmailTemplate = (userName: string, verificationUrl: s
           
           <p>If you didn't request this email, please contact our support team immediately.</p>
           
-          <p>Best regards,<br>The J4IPWDs Team</p>
+          <p>Best regards,<br>The J4PWDs Team</p>
         </div>
         <div class="footer">
           <p>This email was sent to you because you requested a new verification email.</p>
-          <p>If you have any questions, please contact us at support@j4ipwds.com</p>
+          <p>If you have any questions, please contact us at support@J4PWDs.com</p>
         </div>
       </div>
     </body>
     </html>
   `,
   text: `
-    New Verification Email - J4IPWDs
+    New Verification Email - J4PWDs
     
     Hi ${userName},
     
-    You requested a new verification email for your J4IPWDs account. Here's your new verification link:
+    You requested a new verification email for your J4PWDs account. Here's your new verification link:
     
     ${verificationUrl}
     
@@ -195,11 +195,11 @@ const getResendVerificationEmailTemplate = (userName: string, verificationUrl: s
     If you didn't request this email, please contact our support team immediately.
     
     Best regards,
-    The J4IPWDs Team
+    The J4PWDs Team
     
     ---
     This email was sent to you because you requested a new verification email.
-    If you have any questions, please contact us at support@j4ipwds.com
+    If you have any questions, please contact us at support@J4PWDs.com
   `
 });
 
