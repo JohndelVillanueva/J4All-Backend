@@ -129,7 +129,70 @@ const getPasswordResetEmailTemplate = (userName: string, resetUrl: string) => ({
   `
 });
 
-
+const getPasswordResetConfirmationTemplate = (userName: string) => ({
+  subject: 'J4PWDs - Password Changed Successfully',
+  html: `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Password Changed - J4PWDs</title>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+        .logo { font-size: 24px; font-weight: bold; margin-bottom: 10px; }
+        .success-icon { font-size: 48px; margin-bottom: 20px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <div class="logo">J4PWDs</div>
+          <h1>Password Changed Successfully</h1>
+        </div>
+        <div class="content" style="text-align: center;">
+          <div class="success-icon">✅</div>
+          <h2>Hi ${userName},</h2>
+          <p>Your password has been successfully changed.</p>
+          <p>If you didn't make this change, please contact our support team immediately.</p>
+          
+          <p style="margin-top: 30px; padding: 15px; background: #e8f5e8; border-radius: 5px;">
+            <strong>Security Tip:</strong> Use a strong, unique password and enable two-factor authentication for added security.
+          </p>
+          
+          <p>Best regards,<br>The J4PWDs Team</p>
+        </div>
+        <div class="footer">
+          <p>This email was sent to confirm your password change.</p>
+          <p>If you have any questions, please contact us at support@J4PWDs.com</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `,
+  text: `
+    Password Changed Successfully - J4PWDs
+    
+    Hi ${userName},
+    
+    Your password has been successfully changed.
+    
+    If you didn't make this change, please contact our support team immediately.
+    
+    Security Tip: Use a strong, unique password and enable two-factor authentication for added security.
+    
+    Best regards,
+    The J4PWDs Team
+    
+    ---
+    This email was sent to confirm your password change.
+    If you have any questions, please contact us at support@J4PWDs.com
+  `
+});
 
 const getResendVerificationEmailTemplate = (userName: string, verificationUrl: string) => ({
   subject: 'J4PWDs - New Verification Email',
@@ -211,29 +274,51 @@ export class EmailService {
     this.transporter = createTransporter();
   }
 
-  // Add this method inside your EmailService class:
-async sendPasswordResetEmail(userEmail: string, userName: string, resetToken: string): Promise<boolean> {
-  try {
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
-    const emailTemplate = getPasswordResetEmailTemplate(userName, resetUrl);
+  // Send password reset email
+  async sendPasswordResetEmail(userEmail: string, userName: string, resetToken: string): Promise<boolean> {
+    try {
+      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
+      const emailTemplate = getPasswordResetEmailTemplate(userName, resetUrl);
 
-    const mailOptions = {
-      from: `"J4IPWDs" <${emailConfig.auth.user}>`,
-      to: userEmail,
-      subject: emailTemplate.subject,
-      html: emailTemplate.html,
-      text: emailTemplate.text,
-    };
+      const mailOptions = {
+        from: `"J4IPWDs" <${emailConfig.auth.user}>`,
+        to: userEmail,
+        subject: emailTemplate.subject,
+        html: emailTemplate.html,
+        text: emailTemplate.text,
+      };
 
-    const result = await this.transporter.sendMail(mailOptions);
-    console.log('Password reset email sent successfully:', result.messageId);
-    return true;
-  } catch (error) {
-    console.error('Failed to send password reset email:', error);
-    return false;
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log('Password reset email sent successfully:', result.messageId);
+      return true;
+    } catch (error) {
+      console.error('Failed to send password reset email:', error);
+      return false;
+    }
   }
-}
+
+  // Send password reset confirmation email
+  async sendPasswordResetConfirmation(userEmail: string, userName: string): Promise<boolean> {
+    try {
+      const emailTemplate = getPasswordResetConfirmationTemplate(userName);
+      
+      const mailOptions = {
+        from: `"J4IPWDs" <${emailConfig.auth.user}>`,
+        to: userEmail,
+        subject: emailTemplate.subject,
+        html: emailTemplate.html,
+        text: emailTemplate.text,
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log('Password reset confirmation email sent successfully:', result.messageId);
+      return true;
+    } catch (error) {
+      console.error('Failed to send password reset confirmation email:', error);
+      return false;
+    }
+  }
 
   // Send verification email
   async sendVerificationEmail(userEmail: string, userName: string, verificationToken: string): Promise<boolean> {
@@ -296,6 +381,11 @@ async sendPasswordResetEmail(userEmail: string, userName: string, resetToken: st
       return false;
     }
   }
+
+  // Generic email sending method (for the sendEmail function in controller)
+  async sendMail(mailOptions: nodemailer.SendMailOptions): Promise<nodemailer.SentMessageInfo> {
+    return await this.transporter.sendMail(mailOptions);
+  }
 }
 
 // Create singleton instance
@@ -309,4 +399,4 @@ export const sendDevelopmentEmail = (to: string, subject: string, html: string, 
   console.log('HTML Content:', html);
   console.log('Text Content:', text);
   console.log('=== END EMAIL ===\n');
-}; 
+};

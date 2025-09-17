@@ -7,6 +7,7 @@ import { authMiddleware } from '../../utils/auth.js';
 import { employerSignUpSchema } from "../../shared/shared-schema.js";
 import { emailService, sendDevelopmentEmail } from "../../services/emailService.js";
 import { prisma } from "../../db.js";
+import { Prisma } from '@prisma/client'; // Added Prisma import
 
 import { writeFile } from "fs/promises";     // to save the file
 import fs from "fs";                        // to use fs.promises.mkdir
@@ -37,10 +38,6 @@ const CreateUserSchema = z.object({
     .regex(/^\+?[0-9\s-]+$/)
     .optional(),
 });
-
-
-
-
 
 // Enhanced error handler
 const handleError = (c: Context, error: unknown) => {
@@ -155,9 +152,6 @@ export const userLoginController = async (c: Context): Promise<Response> => {
     return c.json({ error: "Server error" }, 500);
   }
 };
-
-
-
 
 export const createEmployerController = async (c: Context) => {
   try {
@@ -406,10 +400,10 @@ export const forgotPasswordController = async (c: Context): Promise<Response> =>
 
     // You can use the raw token in the reset link
     await emailService.sendPasswordResetEmail(
-  user.email,
-  user.first_name || user.username || "User",
-  resetToken
-);
+      user.email,
+      user.first_name || user.username || "User",
+      resetToken
+    );
 
     return c.json({
       success: true,
@@ -424,52 +418,72 @@ export const forgotPasswordController = async (c: Context): Promise<Response> =>
 
 export const resetPasswordController = async (c: Context): Promise<Response> => {
   try {
-    const { token, password } = await c.req.json();
+    const { token, password, confirmPassword } = await c.req.json();
 
     // Validate input
-    if (!token || !password) {
-      return c.json({ error: "Token and new password are required" }, 400);
+    if (!token || !password || !confirmPassword) {
+      return c.json({ error: "Token, password, and confirmation are required" }, 400);
     }
 
+    if (password !== confirmPassword) {
+      return c.json({ error: "Passwords do not match" }, 400);
+    }
+
+    // Debug logging
+    console.log("Looking for token:", token);
+    
     // Find the verification token
-    const verificationToken = await prisma.verificationToken.findUnique({
-      where: { token },
+    const verificationToken = await prisma.verificationToken.findFirst({
+      where: { 
+        token: token,
+        expires: {
+          gt: new Date() // Check if token is not expired
+        }
+      },
       include: { user: true }
     });
 
-    if (!verificationToken || verificationToken.expires < new Date()) {
-      // Delete expired token if found
-      if (verificationToken) {
-        await prisma.verificationToken.delete({ where: { id: verificationToken.id } });
-      }
+    console.log("Found token:", verificationToken);
+
+    if (!verificationToken) {
       return c.json({ error: "Invalid or expired token" }, 400);
     }
 
     // Hash new password
     const hashedPassword = await hash(password, 12);
 
-    // Update user's password
-    await prisma.user.update({
-      where: { id: verificationToken.user_id },
-      data: {
-        password_hash: hashedPassword,
-      }
-    });
-
-    // Delete the used token
-    await prisma.verificationToken.delete({
-      where: { id: verificationToken.id }
-    });
+    // Update user's password using transaction to ensure both operations succeed
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: verificationToken.user_id },
+        data: {
+          password_hash: hashedPassword,
+        }
+      }),
+      prisma.verificationToken.delete({
+        where: { id: verificationToken.id }
+      })
+    ]);
 
     // Send confirmation email
-    await sendEmail({
-      to: verificationToken.user.email,
-      subject: 'Password Changed Successfully',
-      html: `
+    try {
+      // Create a simple email sending function since sendEmail doesn't exist
+      const userName = verificationToken.user.first_name || verificationToken.user.username || "User";
+      const emailContent = `
+        <p>Hello ${userName},</p>
         <p>Your password has been successfully changed.</p>
         <p>If you didn't make this change, please contact our support team immediately.</p>
-      `
-    });
+      `;
+      
+      // Use your existing email service's transporter
+      await emailService.sendPasswordResetConfirmation(
+        verificationToken.user.email,
+        userName
+      );
+    } catch (emailError) {
+      console.error("Failed to send confirmation email:", emailError);
+      // Continue even if email fails
+    }
 
     return c.json({
       success: true,
@@ -478,7 +492,16 @@ export const resetPasswordController = async (c: Context): Promise<Response> => 
 
   } catch (error) {
     console.error("Reset password error:", error);
-    return c.json({ error: "Error resetting password" }, 500);
+    
+    // More detailed error logging
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      console.error("Prisma error code:", error.code);
+    }
+    
+    return c.json({ 
+      error: "Error resetting password",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    }, 500);
   }
 };
 
@@ -687,5 +710,50 @@ export const testEmailController = async (c: Context): Promise<Response> => {
         nodeEnv: process.env.NODE_ENV
       }
     }, 500);
+  }
+};
+
+/**
+ * Validate password reset token (for frontend to check before showing reset form)
+ */
+export const validateResetTokenController = async (c: Context): Promise<Response> => {
+  try {
+    const token = c.req.query('token');
+    if (!token) {
+      return c.json({ valid: false, error: "Token is required" }, 400);
+    }
+
+    const verificationToken = await prisma.verificationToken.findUnique({
+      where: { token }
+    });
+
+    if (!verificationToken || verificationToken.expires < new Date()) {
+      return c.json({ valid: false, error: "Invalid or expired token" }, 400);
+    }
+
+    return c.json({ valid: true });
+  } catch (error) {
+    console.error("Validate reset token error:", error);
+    return c.json({ valid: false, error: "Server error" }, 500);
+  }
+};
+
+// Simple email sending function (replacement for the missing function)
+const sendEmail = async (emailData: { to: string; subject: string; html: string }) => {
+  try {
+    // Use the existing email service's transporter
+    const mailOptions = {
+      from: `"J4IPWDs" <${process.env.SMTP_USER || 'j4pwdsno.reply@gmail.com'}>`,
+      to: emailData.to,
+      subject: emailData.subject,
+      html: emailData.html,
+    };
+
+    const result = await emailService.sendMail(mailOptions);
+    console.log('Email sent successfully:', result.messageId);
+    return true;
+  } catch (error) {
+    console.error("Email sending failed:", error);
+    return false;
   }
 };
