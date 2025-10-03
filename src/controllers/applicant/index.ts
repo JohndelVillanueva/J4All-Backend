@@ -7,6 +7,28 @@ import path from 'path';
 
 const prisma = new PrismaClient();
 
+// Real-time event emitter for application updates
+const realTimeEvents = new Map();
+
+// Function to broadcast real-time updates
+const broadcastUpdate = (eventType: string, data: any, userId?: number) => {
+  const event = {
+    type: eventType,
+    data,
+    timestamp: new Date().toISOString(),
+    userId
+  };
+  
+  // Broadcast to all connected clients or specific user
+  realTimeEvents.forEach((callback, clientId) => {
+    try {
+      callback(event);
+    } catch (error) {
+      console.error(`Error broadcasting to client ${clientId}:`, error);
+    }
+  });
+};
+
 // Apply for a job
 export const applyForJobController = async (c: Context): Promise<Response> => {
   try {
@@ -26,7 +48,7 @@ export const applyForJobController = async (c: Context): Promise<Response> => {
     }
     
     const token = authHeader.split(' ')[1];
-    const verifiedToken = await verifyToken(token); // Use your actual token verification function
+    const verifiedToken = await verifyToken(token);
     
     if (!verifiedToken || !verifiedToken.userId) {
       console.error('[ERROR] Invalid or expired token');
@@ -215,6 +237,23 @@ export const applyForJobController = async (c: Context): Promise<Response> => {
       // Don't fail the application if notification fails
     }
 
+    // 🔄 REAL-TIME: Broadcast new application to employer
+    try {
+      broadcastUpdate('NEW_APPLICATION', {
+        application_id: application.id,
+        job_title: application.job_listing.job_title,
+        company: application.job_listing.employer.company_name,
+        applicant_name: applicantUser?.first_name && applicantUser?.last_name
+          ? `${applicantUser.first_name} ${applicantUser.last_name}`
+          : applicantUser?.username || 'An applicant',
+        applied_at: application.application_date,
+        status: application.status
+      }, application.job_listing.employer.user_id);
+    } catch (rtError) {
+      console.error('[ERROR] Failed to broadcast real-time update:', rtError);
+    }
+
+    // ✅ ADDED: Real-time response with refresh instructions
     return c.json({
       success: true,
       data: {
@@ -223,8 +262,15 @@ export const applyForJobController = async (c: Context): Promise<Response> => {
         company: application.job_listing.employer.company_name,
         status: application.status,
         applied_at: application.application_date
-      }
+      },
+      // 🔄 REAL-TIME: Add real-time flags
+      realTime: true,
+      refresh: true,
+      message: "Application submitted successfully!",
+      broadcast: true,
+      timestamp: new Date().toISOString()
     }, 201);
+    
   } catch (error) {
     console.error('[ERROR] Controller error:', error);
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -253,6 +299,7 @@ export const applyForJobController = async (c: Context): Promise<Response> => {
     }, 500);
   }
 };
+
 // Get applications for logged-in user
 export const getUserApplicationsController = async (c: Context): Promise<Response> => {
   try {
@@ -387,6 +434,9 @@ export const getUserApplicationsController = async (c: Context): Promise<Respons
     return c.json({
       success: true,
       data: transformedApplications,
+      // 🔄 REAL-TIME: Add real-time support
+      realTime: true,
+      timestamp: new Date().toISOString(),
       pagination: {
         current_page: pageNumber,
         total_pages: Math.ceil(total / pageSize),
@@ -573,6 +623,9 @@ export const getEmployerApplicantsController = async (c: Context): Promise<Respo
     return c.json({
       success: true,
       data: transformedApplicants,
+      // 🔄 REAL-TIME: Add real-time support
+      realTime: true,
+      timestamp: new Date().toISOString(),
       pagination: {
         current_page: pageNumber,
         total_pages: Math.ceil(total / pageSize),
@@ -599,6 +652,303 @@ export const getEmployerApplicantsController = async (c: Context): Promise<Respo
       success: false,
       error: "Internal server error" 
     }, 500);
+  }
+};
+
+// Update application status (for employers)
+export const updateApplicationStatusController = async (c: Context): Promise<Response> => {
+  try {
+    console.log('[DEBUG] Starting application status update');
+
+    // Get and verify token
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('[ERROR] Missing or invalid Authorization header');
+      return c.json({ 
+        success: false, 
+        error: "Missing or invalid authorization" 
+      }, 401);
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const verifiedToken = await verifyToken(token);
+    
+    if (!verifiedToken || !verifiedToken.userId) {
+      console.error('[ERROR] Invalid or expired token');
+      return c.json({ 
+        success: false, 
+        error: "Invalid authorization token" 
+      }, 401);
+    }
+
+    const userId = verifiedToken.userId;
+
+    // Find the Employer profile for this user
+    const employer = await prisma.employer.findUnique({
+      where: { user_id: userId }
+    });
+    
+    if (!employer) {
+      return c.json({ 
+        success: false, 
+        error: "Only employers can update application status" 
+      }, 403);
+    }
+
+    const applicationId = parseInt(c.req.param('id'));
+    const body = await c.req.json();
+    const { status, notes } = body;
+
+    // Validate status
+    const validStatuses = ['PENDING', 'REVIEW', 'INTERVIEW', 'HIRED', 'REJECTED'];
+    if (!validStatuses.includes(status?.toUpperCase())) {
+      return c.json({
+        success: false,
+        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+      }, 400);
+    }
+
+    // Get the application with related data
+    const application = await prisma.jobApplication.findFirst({
+      where: {
+        id: applicationId,
+        employer_id: employer.id // Ensure employer owns this application
+      },
+      include: {
+        job_listing: {
+          select: {
+            job_title: true,
+            employer: {
+              select: {
+                company_name: true,
+                user_id: true
+              }
+            }
+          }
+        },
+        seeker: {
+          select: {
+            user_id: true
+          }
+        }
+      }
+    });
+
+    if (!application) {
+      return c.json({
+        success: false,
+        error: "Application not found or access denied"
+      }, 404);
+    }
+
+    // Update the application status
+    const updatedApplication = await prisma.jobApplication.update({
+      where: { id: applicationId },
+      data: {
+        status: status.toUpperCase(),
+        notes: notes || null
+      }
+    });
+
+    // Log activity for status update (best-effort)
+    try {
+      const normalized = status.toUpperCase() === 'HIRED' ? 'approved' : status.toUpperCase() === 'REJECTED' ? 'declined' : 'applied';
+      await (prisma as any).activity?.create({
+        data: {
+          type: 'application',
+          seeker_id: application.seeker_id,
+          employer_id: application.employer_id,
+          job_id: application.job_id,
+          application_id: application.id,
+          title: 'Application status updated',
+          description: `Status: ${status}`,
+          status: normalized,
+        }
+      });
+    } catch {}
+
+    // Send notification to job seeker about status change
+    try {
+      const statusMessages = {
+        'REVIEW': 'Your application is under review',
+        'INTERVIEW': 'You have been selected for an interview!',
+        'HIRED': 'Congratulations! You have been hired!',
+        'REJECTED': 'Your application was not selected for this position'
+      };
+
+      const message = statusMessages[status.toUpperCase() as keyof typeof statusMessages] || 
+        `Your application status has been updated to: ${status}`;
+
+      await prisma.notification.create({
+        data: {
+          title: 'Application Status Update',
+          message: `${message} for the position "${application.job_listing.job_title}" at ${application.job_listing.employer.company_name}.`,
+          type: status.toUpperCase() === 'HIRED' ? 'success' : 
+                status.toUpperCase() === 'REJECTED' ? 'error' : 'info',
+          user_id: application.seeker.user_id,
+          is_read: false
+        }
+      });
+
+      // 🔄 REAL-TIME: Broadcast status update to job seeker
+      try {
+        broadcastUpdate('STATUS_UPDATE', {
+          application_id: updatedApplication.id,
+          job_title: application.job_listing.job_title,
+          company: application.job_listing.employer.company_name,
+          status: updatedApplication.status,
+          previous_status: application.status,
+          updated_at: updatedApplication.application_date,
+          message: message
+        }, application.seeker.user_id);
+      } catch (rtError) {
+        console.error('[ERROR] Failed to broadcast real-time status update:', rtError);
+      }
+
+      // Send chat message to applicant if hired or rejected
+      const employerUser = await prisma.user.findUnique({ where: { id: employer.user_id } });
+      const applicantUser = await prisma.user.findUnique({ where: { id: application.seeker.user_id } });
+      if (employerUser && applicantUser) {
+        // Find or create conversation
+        let conversation = await prisma.conversation.findFirst({
+          where: {
+            OR: [
+              { participant1_id: employerUser.id, participant2_id: applicantUser.id },
+              { participant1_id: applicantUser.id, participant2_id: employerUser.id }
+            ]
+          }
+        });
+        if (!conversation) {
+          conversation = await prisma.conversation.create({
+            data: {
+              participant1_id: employerUser.id,
+              participant2_id: applicantUser.id
+            }
+          });
+        }
+        let content = "";
+        if (status.toUpperCase() === "HIRED") {
+          content = `Congratulations! You have been hired for the position \"${application.job_listing.job_title}\" at ${application.job_listing.employer.company_name}.`;
+        } else if (status.toUpperCase() === "REJECTED") {
+          content = `We regret to inform you that your application for \"${application.job_listing.job_title}\" at ${application.job_listing.employer.company_name} was not successful.`;
+        }
+        if (content) {
+          await prisma.message.create({
+            data: {
+              conversation_id: conversation.id,
+              sender_id: employerUser.id,
+              receiver_id: applicantUser.id,
+              content
+            }
+          });
+        }
+      }
+
+      console.log('[INFO] Status update notification sent to job seeker');
+    } catch (notificationError) {
+      console.error('[ERROR] Failed to send status update notification:', notificationError);
+      // Don't fail the status update if notification fails
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        application_id: updatedApplication.id,
+        status: updatedApplication.status,
+        notes: updatedApplication.notes,
+        updated_at: updatedApplication.application_date
+      },
+      // 🔄 REAL-TIME: Add real-time flags
+      realTime: true,
+      broadcast: true,
+      message: `Application status updated to ${status} successfully!`,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('[ERROR] Error updating application status:', error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return c.json({ 
+        success: false,
+        error: "Database error occurred" 
+      }, 500);
+    }
+    if (error instanceof Error) {
+      return c.json({ 
+        success: false,
+        error: error.message || "Internal server error" 
+      }, 500);
+    }
+    return c.json({ 
+      success: false,
+      error: "Internal server error" 
+    }, 500);
+  }
+};
+
+// 🔄 REAL-TIME: Add WebSocket/SSE endpoint for real-time updates
+export const realTimeUpdatesController = async (c: Context): Promise<Response> => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return c.json({ success: false, error: "Missing authorization" }, 401);
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const verifiedToken = await verifyToken(token);
+    
+    if (!verifiedToken || !verifiedToken.userId) {
+      return c.json({ success: false, error: "Invalid token" }, 401);
+    }
+
+    const userId = verifiedToken.userId;
+    const clientId = `client_${userId}_${Date.now()}`;
+
+    // Set up Server-Sent Events
+    c.header('Content-Type', 'text/event-stream');
+    c.header('Cache-Control', 'no-cache');
+    c.header('Connection', 'keep-alive');
+
+    const stream = new ReadableStream({
+      start(controller) {
+        // Add client to real-time events
+        realTimeEvents.set(clientId, (event: any) => {
+          // Only send events for this user or broadcast events
+          if (!event.userId || event.userId === userId) {
+            const data = `data: ${JSON.stringify(event)}\n\n`;
+            controller.enqueue(new TextEncoder().encode(data));
+          }
+        });
+
+        // Send connection established event
+        const connectEvent = {
+          type: 'CONNECTED',
+          data: { clientId, userId },
+          timestamp: new Date().toISOString()
+        };
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(connectEvent)}\n\n`));
+
+        // Handle client disconnect
+        c.req.raw.signal.addEventListener('abort', () => {
+          realTimeEvents.delete(clientId);
+          controller.close();
+        });
+      },
+      cancel() {
+        realTimeEvents.delete(clientId);
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+  } catch (error) {
+    console.error('[ERROR] Real-time updates controller error:', error);
+    return c.json({ success: false, error: "Real-time connection failed" }, 500);
   }
 };
 
@@ -1030,216 +1380,6 @@ export const getSavedJobsController = async (c: Context): Promise<Response> => {
 };
 
 // Update application status (for employers)
-export const updateApplicationStatusController = async (c: Context): Promise<Response> => {
-  try {
-    console.log('[DEBUG] Starting application status update');
-
-    // Get and verify token
-    const authHeader = c.req.header('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.error('[ERROR] Missing or invalid Authorization header');
-      return c.json({ 
-        success: false, 
-        error: "Missing or invalid authorization" 
-      }, 401);
-    }
-    
-    const token = authHeader.split(' ')[1];
-    const verifiedToken = await verifyToken(token);
-    
-    if (!verifiedToken || !verifiedToken.userId) {
-      console.error('[ERROR] Invalid or expired token');
-      return c.json({ 
-        success: false, 
-        error: "Invalid authorization token" 
-      }, 401);
-    }
-
-    const userId = verifiedToken.userId;
-
-    // Find the Employer profile for this user
-    const employer = await prisma.employer.findUnique({
-      where: { user_id: userId }
-    });
-    
-    if (!employer) {
-      return c.json({ 
-        success: false, 
-        error: "Only employers can update application status" 
-      }, 403);
-    }
-
-    const applicationId = parseInt(c.req.param('id'));
-    const body = await c.req.json();
-    const { status, notes } = body;
-
-    // Validate status
-    const validStatuses = ['PENDING', 'REVIEW', 'INTERVIEW', 'HIRED', 'REJECTED'];
-    if (!validStatuses.includes(status?.toUpperCase())) {
-      return c.json({
-        success: false,
-        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
-      }, 400);
-    }
-
-    // Get the application with related data
-    const application = await prisma.jobApplication.findFirst({
-      where: {
-        id: applicationId,
-        employer_id: employer.id // Ensure employer owns this application
-      },
-      include: {
-        job_listing: {
-          select: {
-            job_title: true,
-            employer: {
-              select: {
-                company_name: true,
-                user_id: true
-              }
-            }
-          }
-        },
-        seeker: {
-          select: {
-            user_id: true
-          }
-        }
-      }
-    });
-
-    if (!application) {
-      return c.json({
-        success: false,
-        error: "Application not found or access denied"
-      }, 404);
-    }
-
-    // Update the application status
-    const updatedApplication = await prisma.jobApplication.update({
-      where: { id: applicationId },
-      data: {
-        status: status.toUpperCase(),
-        notes: notes || null
-      }
-    });
-
-    // Log activity for status update (best-effort)
-    try {
-      const normalized = status.toUpperCase() === 'HIRED' ? 'approved' : status.toUpperCase() === 'REJECTED' ? 'declined' : 'applied';
-      await (prisma as any).activity?.create({
-        data: {
-          type: 'application',
-          seeker_id: application.seeker_id,
-          employer_id: application.employer_id,
-          job_id: application.job_id,
-          application_id: application.id,
-          title: 'Application status updated',
-          description: `Status: ${status}`,
-          status: normalized,
-        }
-      });
-    } catch {}
-
-    // Send notification to job seeker about status change
-    try {
-      const statusMessages = {
-        'REVIEW': 'Your application is under review',
-        'INTERVIEW': 'You have been selected for an interview!',
-        'HIRED': 'Congratulations! You have been hired!',
-        'REJECTED': 'Your application was not selected for this position'
-      };
-
-      const message = statusMessages[status.toUpperCase() as keyof typeof statusMessages] || 
-        `Your application status has been updated to: ${status}`;
-
-      await prisma.notification.create({
-        data: {
-          title: 'Application Status Update',
-          message: `${message} for the position "${application.job_listing.job_title}" at ${application.job_listing.employer.company_name}.`,
-          type: status.toUpperCase() === 'HIRED' ? 'success' : 
-                status.toUpperCase() === 'REJECTED' ? 'error' : 'info',
-          user_id: application.seeker.user_id,
-          is_read: false
-        }
-      });
-
-      // --- Send chat message to applicant if hired or rejected ---
-      const employerUser = await prisma.user.findUnique({ where: { id: employer.user_id } });
-      const applicantUser = await prisma.user.findUnique({ where: { id: application.seeker.user_id } });
-      if (employerUser && applicantUser) {
-        // Find or create conversation
-        let conversation = await prisma.conversation.findFirst({
-          where: {
-            OR: [
-              { participant1_id: employerUser.id, participant2_id: applicantUser.id },
-              { participant1_id: applicantUser.id, participant2_id: employerUser.id }
-            ]
-          }
-        });
-        if (!conversation) {
-          conversation = await prisma.conversation.create({
-            data: {
-              participant1_id: employerUser.id,
-              participant2_id: applicantUser.id
-            }
-          });
-        }
-        let content = "";
-        if (status.toUpperCase() === "HIRED") {
-          content = `Congratulations! You have been hired for the position \"${application.job_listing.job_title}\" at ${application.job_listing.employer.company_name}.`;
-        } else if (status.toUpperCase() === "REJECTED") {
-          content = `We regret to inform you that your application for \"${application.job_listing.job_title}\" at ${application.job_listing.employer.company_name} was not successful.`;
-        }
-        if (content) {
-          await prisma.message.create({
-            data: {
-              conversation_id: conversation.id,
-              sender_id: employerUser.id,
-              receiver_id: applicantUser.id,
-              content
-            }
-          });
-        }
-      }
-      // --- End chat message ---
-
-      console.log('[INFO] Status update notification sent to job seeker');
-    } catch (notificationError) {
-      console.error('[ERROR] Failed to send status update notification:', notificationError);
-      // Don't fail the status update if notification fails
-    }
-
-    return c.json({
-      success: true,
-      data: {
-        application_id: updatedApplication.id,
-        status: updatedApplication.status,
-        notes: updatedApplication.notes,
-        updated_at: updatedApplication.application_date
-      }
-    });
-
-  } catch (error) {
-    console.error('[ERROR] Error updating application status:', error);
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      return c.json({ 
-        success: false,
-        error: "Database error occurred" 
-      }, 500);
-    }
-    if (error instanceof Error) {
-      return c.json({ 
-        success: false,
-        error: error.message || "Internal server error" 
-      }, 500);
-    }
-    return c.json({ 
-      success: false,
-      error: "Internal server error" 
-    }, 500);
-  }
-};
 
 export const getApplicationDetailsController = async (c: Context): Promise<Response> => {
   const id = c.req.param('id');

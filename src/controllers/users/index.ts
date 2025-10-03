@@ -8,7 +8,8 @@ import crypto from "crypto";
 import { PhotoService } from "../../services/photoService.js";
 
 // User creation schema
-const CreateUserSchema = z.object({
+ // ✅ Updated validation schema
+ const CreateUserSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   email: z.string().email("Invalid email format"),
   password: z.string()
@@ -17,11 +18,19 @@ const CreateUserSchema = z.object({
     .regex(/[a-z]/, "Password must contain at least one lowercase letter")
     .regex(/[0-9]/, "Password must contain at least one number")
     .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character"),
-  user_type: z.enum(['general', 'pwd', 'indigenous', 'employer']).default('general'),
+  user_type: z.enum(["pwd", "indigenous", "general", "employer"]),
   first_name: z.string().min(2).optional(),
   last_name: z.string().min(2).optional(),
   phone_number: z.string().regex(/^\+?[0-9\s-]+$/).optional(),
-  address: z.string().min(5).max(500).optional(),
+  pwd_id_number: z.string().optional(),
+}).refine((data) => {
+  if (data.user_type !== "employer") {
+    return !!data.pwd_id_number && data.pwd_id_number.trim().length > 0;
+  }
+  return true;
+}, {
+  message: "PWD ID Number is required for jobseeker users",
+  path: ["pwd_id_number"],
 });
 interface UserResponse {
   id: number;
@@ -36,73 +45,6 @@ interface LoginRequest {
   password: string;
   userType?: string; // Made optional for better UX
 }
-
-const employerSignUpSchema = z.object({
-    // Required fields matching the employers table
-    companyName: z
-      .string()
-      .min(1, "Company name is required")
-      .max(100, "Company name too long"),
-
-    contactPerson: z
-      .string()
-      .min(1, "Contact person is required")
-      .max(100, "Name too long"),
-
-    email: z.string().email("Invalid email format").max(100, "Email too long"),
-
-    phone: z
-      .string()
-      .min(10, "Phone must be at least 10 digits")
-      .max(15, "Phone number too long"),
-
-    // address → company_description in DB
-    address: z
-      .string()
-      .min(5, "Address too short (min 5 chars)")
-      .max(500, "Address too long (max 500 chars)"),
-
-    industry: z
-      .string()
-      .min(1, "Industry is required")
-      .max(100, "Industry name too long"),
-
-    // Password fields (not stored in employers table but in users table)
-    password: z
-      .string()
-      .min(8, "Password must be 8+ characters")
-      .regex(/[A-Z]/, "Must contain uppercase letter")
-      .regex(/[a-z]/, "Must contain lowercase letter")
-      .regex(/[0-9]/, "Must contain number"),
-
-    confirmPassword: z.string(),
-
-    // Optional fields with defaults from DB schema
-    companySize: z
-      .enum(["1-10", "11-50", "51-200", "201-500", "501+"])
-      .default("1-10"),
-
-    websiteUrl: z
-      .string()
-      .url("Invalid website URL")
-      .max(200, "URL too long")
-      .optional()
-      .or(z.literal("")),
-
-    foundedYear: z
-      .number()
-      .min(1900, "Year must be ≥ 1900")
-      .max(new Date().getFullYear(), "Can't be in future")
-      .default(new Date().getFullYear()),
-
-    // Required for form submission
-    agreeToTerms: z.literal(true, {
-      errorMap: () => ({ message: "You must accept terms" }),
-    }),
-  }).refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match",
-    path: ["confirmPassword"],
-  });
 
 export const userLoginController = async (c: Context): Promise<Response> => {
   // const prisma = new PrismaClient();
@@ -246,6 +188,8 @@ export const createUserController = async (c: Context) => {
       ])
     );
 
+   
+
     // 2. Validate input
     const validatedData = CreateUserSchema.safeParse(sanitizedData);
     if (!validatedData.success) {
@@ -253,7 +197,7 @@ export const createUserController = async (c: Context) => {
       console.log("Validation errors:", JSON.stringify(errors, null, 2));
       return c.json(
         {
-        success: false,
+          success: false,
           errors: errors,
         },
         400
@@ -261,6 +205,7 @@ export const createUserController = async (c: Context) => {
     }
 
     const userData = validatedData.data;
+    const normalizedEmail = userData.email.toLowerCase();
 
     // 3. Check password strength
     try {
@@ -278,10 +223,7 @@ export const createUserController = async (c: Context) => {
       }
     } catch (e) {
       console.error("Password strength check failed:", e);
-      // Continue without password strength check if zxcvbn fails
     }
-
-    const normalizedEmail = userData.email.toLowerCase();
 
     // 4. Add rate limit check
     const rateLimit = await checkRateLimit(
@@ -298,37 +240,27 @@ export const createUserController = async (c: Context) => {
     }
 
     // 5. Create user in transaction
-    const user = await prisma.$transaction(
-      async (tx: any) => {
-        const hashedPassword = await bcrypt.hash(userData.password, 10);
+    const user = await prisma.$transaction(async (tx: any) => {
+      const hashedPassword = await bcrypt.hash(userData.password, 10);
 
-        console.log(`User creation attempt: ${normalizedEmail}`);
-        const createdUser = await tx.user.create({
-          data: {
-            username: userData.username,
-            email: normalizedEmail,
-            password_hash: hashedPassword,
-            user_type: userData.user_type,
-            first_name: userData.first_name,
-            last_name: userData.last_name,
-            phone_number: userData.phone_number,
-            is_active: userData.user_type === 'employer' ? true : false // Only employers are active by default
-            // address: userData.address, // REMOVED, not in Prisma schema
-          },
-        });
-        console.log(`User created successfully: ${createdUser.id}`);
+      console.log(`User creation attempt: ${normalizedEmail}`);
+      const createdUser = await tx.user.create({
+        data: {
+          username: userData.username,
+          email: normalizedEmail,
+          password_hash: hashedPassword,
+          user_type: userData.user_type,
+          first_name: userData.first_name,
+          last_name: userData.last_name,
+          phone_number: userData.phone_number,
+          pwd_id_number: userData.user_type !== "employer" ? userData.pwd_id_number : null, // ✅ Always set for jobseekers
+          is_active: userData.user_type === "employer" ? true : false,
+        },
+      });
+      console.log(`User created successfully: ${createdUser.id}`);
 
-        // Create JobSeeker profile for job-seeking users
-        if (["pwd", "indigenous", "general"].includes(createdUser.user_type)) {
-          await tx.jobSeeker.create({
-            data: { user_id: createdUser.id }
-          });
-          console.log(`JobSeeker profile created for user ${createdUser.id}`);
-        }
-
-        return createdUser;
-      }
-    );
+      return createdUser;
+    });
 
     // Save photo if present
     if (photoFile) {
@@ -347,19 +279,16 @@ export const createUserController = async (c: Context) => {
         },
       });
 
-      // Import email service dynamically to avoid circular dependencies
       const { emailService, sendDevelopmentEmail } = await import("../../services/emailService.js");
-      
-      // Send verification email
+
       const userName = user.first_name || user.email.split('@')[0];
       const emailSent = await emailService.sendVerificationEmail(
-        user.email, 
-        userName, 
+        user.email,
+        userName,
         verificationToken
       );
 
       if (!emailSent && process.env.NODE_ENV === 'development') {
-        // Fallback for development - log the email content
         const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
         const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
         sendDevelopmentEmail(
@@ -371,7 +300,6 @@ export const createUserController = async (c: Context) => {
       }
     } catch (tokenError) {
       console.error("Error creating verification token or sending email:", tokenError);
-      // Continue even if token creation fails
     }
 
     // 7. Send response
@@ -383,6 +311,7 @@ export const createUserController = async (c: Context) => {
         first_name: user.first_name,
         last_name: user.last_name,
         user_type: user.user_type,
+        pwd_id_number: user.pwd_id_number, // ✅ include in response
         phone_number: user.phone_number,
         created_at: user.created_at,
       },
@@ -392,7 +321,6 @@ export const createUserController = async (c: Context) => {
   } catch (error: unknown) {
     console.error("Detailed error:", error);
 
-    // Handle Prisma unique constraint violations
     if ((error as any).code === "P2002") {
       const target = (error as any).meta?.target as string[];
       if (target.includes("email")) {
@@ -419,7 +347,6 @@ export const createUserController = async (c: Context) => {
       }
     }
 
-    // Handle Prisma validation errors
     if ((error as any).code === "P2003") {
       return c.json(
         {
@@ -432,7 +359,6 @@ export const createUserController = async (c: Context) => {
       );
     }
 
-    // Handle other Prisma errors
     if ((error as any).code) {
       return c.json(
         {
@@ -460,6 +386,9 @@ export const createUserController = async (c: Context) => {
     await prisma.$disconnect();
   }
 };
+
+
+
 
 export async function updateUserController(c: Context) {
   const id = Number(c.req.param('id'));

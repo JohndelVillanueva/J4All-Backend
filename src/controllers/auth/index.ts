@@ -343,10 +343,11 @@ export const getUserById = async (c: Context) => {
         first_name: true,
         last_name: true,
         user_type: true,
-        phone_number: true, // Added
-        photo: true,        // Added (for avatar)
-        username: true,     // Added (for username)
-        created_at: true    // <-- Add this line to include creation date
+        phone_number: true,
+        photo: true,
+        username: true,
+        created_at: true,
+        pwd_id_number: true,   // 👈 add this line
       }
     });
 

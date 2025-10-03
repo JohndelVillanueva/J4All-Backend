@@ -111,6 +111,7 @@ model JobSeeker {
   desired_salary      Float?
   location_preference String?
   disability          String? // Optional disability field
+  pwd_number          String? // Added PWD number field
 
   applications JobApplication[] @relation("SeekerApplications")
   skills       JobSeekerSkill[]
@@ -186,6 +187,7 @@ model User {
   email         String    @unique
   password_hash String
   user_type     UserType // Now uses the enum
+  pwd_id_number String?  // 👈 add this (nullable if not all users are PWD)
   first_name    String?
   last_name     String?
   phone_number  String?
