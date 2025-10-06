@@ -14,13 +14,16 @@ const PORT = process.env.PORT || 3111;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Serve static files (uploads, images, etc.)
-app.use('/uploads/*', serveStatic({
+app.use("/uploads/*", serveStatic({
+  root: './',
   getContent: async (filePath: string, c) => {
     console.log('Requested filePath for static:', filePath);
     const fullPath = path.join(process.cwd(), 'public', filePath);
-    console.log('Resolved fullPath for static:', fullPath);
+    console.log('Resolved fullpath for static:', fullPath);
     try {
-      return await fs.readFile(fullPath);
+      const fileBuffer = await fs.readFile(fullPath);
+      // Convert Buffer to Uint8Array which is compatible with Data type
+      return new Uint8Array(fileBuffer);
     } catch (error) {
       console.error('Error reading file:', error);
       return null;
