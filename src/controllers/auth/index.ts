@@ -501,7 +501,7 @@ export const resetPasswordController = async (c: Context): Promise<Response> => 
     
     return c.json({ 
       error: "Error resetting password",
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: process.env.NODE_ENV === 'development'
     }, 500);
   }
 };

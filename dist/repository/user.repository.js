@@ -1,7 +1,7 @@
 // // user.repository.ts
 // import { prisma } from '../src/db.js';
 // import bcrypt from 'bcryptjs';
-
+export {};
 // export const UserRepository = {
 //   async create(userData: {
 //     username: string;
@@ -22,7 +22,6 @@
 //       select: { id: true, username: true, email: true, user_type: true }
 //     });
 //   },
-
 //   async findByEmail(email: string) {
 //     return prisma.user.findUnique({ where: { email } });
 //   }
