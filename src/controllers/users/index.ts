@@ -24,12 +24,12 @@ import { PhotoService } from "../../services/photoService.js";
   phone_number: z.string().regex(/^\+?[0-9\s-]+$/).optional(),
   pwd_id_number: z.string().optional(),
 }).refine((data) => {
-  if (data.user_type !== "employer") {
+  if (data.user_type === "pwd") {
     return !!data.pwd_id_number && data.pwd_id_number.trim().length > 0;
   }
   return true;
 }, {
-  message: "PWD ID Number is required for jobseeker users",
+  message: "PWD ID Number is required for PWD users",
   path: ["pwd_id_number"],
 });
 interface UserResponse {
