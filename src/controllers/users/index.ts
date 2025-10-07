@@ -18,7 +18,7 @@ import { PhotoService } from "../../services/photoService.js";
     .regex(/[a-z]/, "Password must contain at least one lowercase letter")
     .regex(/[0-9]/, "Password must contain at least one number")
     .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character"),
-  user_type: z.enum(["pwd", "indigenous", "general", "employer"]),
+  user_type: z.enum(["pwd", "general", "employer"]),
   first_name: z.string().min(2).optional(),
   last_name: z.string().min(2).optional(),
   phone_number: z.string().regex(/^\+?[0-9\s-]+$/).optional(),
