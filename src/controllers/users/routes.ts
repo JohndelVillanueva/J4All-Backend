@@ -1,19 +1,20 @@
 import { Hono } from "hono";
 import {
-  updateUserController,
-  createUserController,
-  userLoginController,
+  // updateUserController,
+  // createUserController,
+  // // userLoginController,
+  // getStatsController,
 } from "./index.js";
 import { getEmployerByUserId, updateEmployerByUserId } from "./employerController.js";
 import { getJobSeekerByUserId, updateJobSeekerByUserId } from "./jobSeekerController.js";
-import { getStatsController } from "./index.js";
 
-const router = new Hono()
-  .post("/login", userLoginController)
-  .post("/create", createUserController)
-  .put("/users/:id", updateUserController)
-  // Stats endpoint
-  .get("/stats", getStatsController)
+// Create the router with a base path
+const userRouter = new Hono()
+  // .post("/login", userLoginController)
+  // .post("/create", createUserController)
+  // .put("/users/:id", updateUserController)
+  // // Stats endpoint
+  // .get("/stats", getStatsController)
   // Employer endpoints
   .get('/employer/:userId', getEmployerByUserId)
   .put('/employer/:userId', updateEmployerByUserId)
@@ -21,4 +22,8 @@ const router = new Hono()
   .get('/jobseeker/:userId', getJobSeekerByUserId)
   .put('/jobseeker/:userId', updateJobSeekerByUserId);
 
-export default router;
+// Export as named export to match the import in routes.js
+export { userRouter };
+
+// Also keep default export for compatibility
+export default userRouter;

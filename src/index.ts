@@ -96,7 +96,7 @@ app.onError(errorHandler);
 app.notFound(notFoundHandler);
 
 // Start server
-console.log('Starting J4IPWDs server...');
+console.log('Starting J4PWDs server...');
 serve({
   fetch: app.fetch,
   port: Number(PORT)

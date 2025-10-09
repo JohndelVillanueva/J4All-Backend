@@ -8,11 +8,13 @@ import {
   testEmailController,
   forgotPasswordController,
  resetPasswordController,
- validateResetTokenController
+ validateResetTokenController,
+  getStatsController,
 } from "./index.js";
 import { authMiddleware } from "../../utils/auth.js";
 
 const auth = new Hono()
+  .get("/stats", getStatsController)
   .get('/users/:id', authMiddleware, getUserById)
   .post("/login", userLoginController)
   .post("/createEmployer", createEmployerController)
