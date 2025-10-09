@@ -54,12 +54,15 @@ app.use('*', async (c, next) => {
 
 // Mount API routes
 const mountRoutes = (routes: readonly any[], prefix: string = '/api') => {
-  routes.forEach((route) => {
+  console.log(`📍 Mounting ${routes.length} route(s) at prefix: ${prefix}`);
+  routes.forEach((route, index) => {
+    console.log(`  - Route ${index + 1}: Mounting...`);
     app.route(prefix, route);
   });
 };
 
 // Mount all route groups
+console.log('\n🔧 Starting route registration...\n');
 mountRoutes(routes);
 mountRoutes(auth);
 mountRoutes(interview, '/api/interview');
@@ -72,6 +75,21 @@ mountRoutes(notifications, '/api/notifications');
 mountRoutes(messages, '/api/messages');
 mountRoutes(photos, '/api/photos');
 mountRoutes(admin, '/api/admin');
+
+console.log('\n✅ Route registration complete\n');
+
+// Debug route to check what routes are registered
+app.get('/debug-routes', (c) => {
+  return c.json({
+    message: 'Debug endpoint - checking route registration',
+    info: 'Routes should be available',
+    testEndpoints: [
+      'GET /api/stats',
+      'POST /api/login',
+      'GET /health',
+    ]
+  });
+});
 
 // Health check route
 app.get('/health', (c) => {
@@ -101,7 +119,14 @@ serve({
   fetch: app.fetch,
   port: Number(PORT)
 }, (info) => {
+  console.log(`\n${'='.repeat(50)}`);
   console.log(`🚀 J4IPWDs server is running on http://localhost:${info.port}`);
   console.log(`📱 Frontend URL: ${FRONTEND_URL}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`${'='.repeat(50)}\n`);
+  console.log('Available test endpoints:');
+  console.log(`  - http://localhost:${info.port}/health`);
+  console.log(`  - http://localhost:${info.port}/debug-routes`);
+  console.log(`  - http://localhost:${info.port}/api/stats`);
+  console.log(`${'='.repeat(50)}\n`);
 });
