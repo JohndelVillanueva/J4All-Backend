@@ -413,4 +413,81 @@ export async function updateUserController(c: Context) {
     return c.json({ success: false, error: 'Failed to update user' }, 500);
   }
 }
+
+export const getStatsController = async (c: Context): Promise<Response> => {
+  try {
+    // Fetch all statistics in parallel for better performance
+    const [
+      activeUsersCount,
+      jobListingsCount,
+      partnerEmployersCount
+    ] = await Promise.all([
+      // Count active users (PWD and general users, excluding employers)
+      prisma.user.count({
+        where: {
+          user_type: {
+            in: ["pwd", "general", "employer"]
+          },
+          is_active: true
+        }
+      }),
+      
+      // Count job listings (assuming you have a Job table)
+      // Replace 'job' with your actual table name if different
+      prisma.jobListing.count({
+        where: {
+          // Add any filters for active/published jobs if needed
+          // status: 'active' or similar
+        }
+      }).catch(() => 0), // Return 0 if job table doesn't exist yet
+      
+      // Count employers
+      prisma.user.count({
+        where: {
+          user_type: "employer",
+          is_active: true
+        }
+      })
+    ]);
+
+    // Format numbers for display (e.g., 1000 -> "1,000+")
+    const formatStat = (num: number): string => {
+      if (num >= 1000) {
+        return `${Math.floor(num / 1000) * 1000}+`;
+      }
+      return `${num}+`;
+    };
+
+    return c.json({
+      success: true,
+      data: {
+        activeUsers: {
+          count: activeUsersCount,
+          formatted: formatStat(activeUsersCount)
+        },
+        jobListings: {
+          count: jobListingsCount,
+          formatted: formatStat(jobListingsCount)
+        },
+        partnerEmployers: {
+          count: partnerEmployersCount,
+          formatted: formatStat(partnerEmployersCount)
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching stats:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch statistics",
+        message: "An error occurred while retrieving platform statistics.",
+        details: error instanceof Error ? error.message : "Unknown error"
+      },
+      500
+    );
+  } finally {
+    await prisma.$disconnect();
+  }
+};
                
