@@ -1,18 +1,14 @@
 import { Hono } from "hono";
-import {
-  // updateUserController,
-  // createUserController,
-  // // userLoginController,
-  // getStatsController,
-} from "./index.js";
+import { createUserController, updateUserController } from "./index.js";
 import { getEmployerByUserId, updateEmployerByUserId } from "./employerController.js";
 import { getJobSeekerByUserId, updateJobSeekerByUserId } from "./jobSeekerController.js";
+import { userLoginController } from "../auth/index.js";
 
 // Create the router with a base path
 const userRouter = new Hono()
-  // .post("/login", userLoginController)
-  // .post("/create", createUserController)
-  // .put("/users/:id", updateUserController)
+  .post("/login", userLoginController)
+  .post("/create", createUserController)
+  .put("/users/:id", updateUserController)
   // // Stats endpoint
   // .get("/stats", getStatsController)
   // Employer endpoints
