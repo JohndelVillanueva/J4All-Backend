@@ -3,16 +3,19 @@ import bcrypt, { hash } from "bcryptjs";
 import { z } from "zod"; // For validation
 import { checkRateLimit } from "../../utils/rate-limit.js";
 import { generateToken, verifyPassword } from "../../utils/auth.js";
-import { authMiddleware } from '../../utils/auth.js';
+import { authMiddleware } from "../../utils/auth.js";
 import { employerSignUpSchema } from "../../shared/shared-schema.js";
-import { emailService, sendDevelopmentEmail } from "../../services/emailService.js";
+import {
+  emailService,
+  sendDevelopmentEmail,
+} from "../../services/emailService.js";
 import { prisma } from "../../db.js";
-import { Prisma } from '@prisma/client'; // Added Prisma import
+import { Prisma } from "@prisma/client"; // Added Prisma import
 
-import { writeFile } from "fs/promises";     // to save the file
-import fs from "fs";                        // to use fs.promises.mkdir
-import path from "path";                    // to resolve file path
-import crypto from "crypto";                // to generate unique file names
+import { writeFile } from "fs/promises"; // to save the file
+import fs from "fs"; // to use fs.promises.mkdir
+import path from "path"; // to resolve file path
+import crypto from "crypto"; // to generate unique file names
 
 // User creation schema
 const CreateUserSchema = z.object({
@@ -42,38 +45,51 @@ const CreateUserSchema = z.object({
 // Enhanced error handler
 const handleError = (c: Context, error: unknown) => {
   console.error("Error:", error);
-  
+
   if (error instanceof z.ZodError) {
-    return c.json({
-      success: false,
-      error: "Validation failed",
-      details: error.flatten()
-    }, 400);
+    return c.json(
+      {
+        success: false,
+        error: "Validation failed",
+        details: error.flatten(),
+      },
+      400
+    );
   }
 
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    if (error.code === 'P2002') {
-      const target = error.meta?.target as string[] || ['unknown field'];
-      return c.json({
-        success: false,
-        error: `${target.join(', ')} already exists`,
-        code: error.code
-      }, 409);
+    if (error.code === "P2002") {
+      const target = (error.meta?.target as string[]) || ["unknown field"];
+      return c.json(
+        {
+          success: false,
+          error: `${target.join(", ")} already exists`,
+          code: error.code,
+        },
+        409
+      );
     }
-    return c.json({
-      success: false,
-      error: "Database error",
-      code: error.code
-    }, 500);
+    return c.json(
+      {
+        success: false,
+        error: "Database error",
+        code: error.code,
+      },
+      500
+    );
   }
 
-  return c.json({
-    success: false,
-    error: "Registration failed",
-    details: process.env.NODE_ENV === 'development' && error instanceof Error 
-      ? error.message 
-      : undefined
-  }, 500);
+  return c.json(
+    {
+      success: false,
+      error: "Registration failed",
+      details:
+        process.env.NODE_ENV === "development" && error instanceof Error
+          ? error.message
+          : undefined,
+    },
+    500
+  );
 };
 // Define proper TypeScript interfaces
 interface LoginRequest {
@@ -92,7 +108,100 @@ interface UserResponse {
   phone_number?: string | null;
   created_at?: Date;
   is_active?: boolean;
+  is_approved?: boolean;
 }
+
+export const getPendingEmployersController = async (c: Context): Promise<Response> => {
+  try {
+    console.log('Fetching pending employers...');
+    
+    const pendingEmployers = await prisma.user.findMany({
+      where: {
+        user_type: 'employer',
+        is_approved: false,
+        is_email_verified: true // Only show employers who have verified their email
+      },
+      include: {
+        employer: true
+      },
+      orderBy: {
+        created_at: 'desc'
+      }
+    });
+
+    console.log(`Found ${pendingEmployers.length} pending employers`);
+
+    return c.json({
+      success: true,
+      data: pendingEmployers
+    });
+
+  } catch (error) {
+    console.error("Get pending employers error:", error);
+    return c.json({ 
+      success: false,
+      error: "Failed to fetch pending employers" 
+    }, 500);
+  }
+};
+
+// Approve employer account
+export const approveEmployerController = async (c: Context): Promise<Response> => {
+  try {
+    const { employerId } = await c.req.json();
+    const adminUser = c.get('user'); // From auth middleware
+
+    if (!employerId) {
+      return c.json({ error: "Employer ID is required" }, 400);
+    }
+
+    // Find the employer user
+    const employerUser = await prisma.user.findUnique({
+      where: { id: employerId },
+      include: { employer: true }
+    });
+
+    if (!employerUser || employerUser.user_type !== 'employer') {
+      return c.json({ error: "Employer not found" }, 404);
+    }
+
+    if (employerUser.is_approved) {
+      return c.json({ error: "Employer already approved" }, 400);
+    }
+
+    // Update employer approval status
+    const updatedUser = await prisma.user.update({
+      where: { id: employerId },
+      data: {
+        is_approved: true,
+        is_active: true,
+        approved_at: new Date(),
+        approved_by: adminUser.id
+      }
+    });
+
+    // Send approval notification email
+    try {
+      const userName = employerUser.first_name || employerUser.email.split('@')[0];
+      await emailService.sendApprovalEmail(
+        employerUser.email,
+        userName
+      );
+    } catch (emailError) {
+      console.error("Failed to send approval email:", emailError);
+      // Continue even if email fails
+    }
+
+    return c.json({
+      success: true,
+      message: "Employer approved successfully. Approval email has been sent."
+    });
+
+  } catch (error) {
+    console.error("Approve employer error:", error);
+    return c.json({ error: "Failed to approve employer" }, 500);
+  }
+};
 
 export const userLoginController = async (c: Context): Promise<Response> => {
   try {
@@ -113,16 +222,34 @@ export const userLoginController = async (c: Context): Promise<Response> => {
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) return c.json({ error: "Invalid credentials" }, 401);
 
-    // Check if account is verified (for both job seekers and employers)
-    if (!user.is_active) {
+    // Check if account is verified
+    if (!user.is_email_verified) {
       return c.json({ 
-        error: "Account not verified", 
-        message: "Please check your email and verify your account before logging in.",
-        code: "ACCOUNT_NOT_VERIFIED"
+        error: "Email not verified", 
+        message: "Please verify your email address before logging in.",
+        code: "EMAIL_NOT_VERIFIED"
       }, 401);
     }
 
-    // ✅ Update last_login (with error handling)
+    // Check if employer account is approved
+    if (user.user_type === 'employer' && !user.is_approved) {
+      return c.json({ 
+        error: "Account pending approval", 
+        message: "Your employer account is awaiting administrator approval. This typically takes 1-2 business days.",
+        code: "PENDING_ADMIN_APPROVAL"
+      }, 401);
+    }
+
+    // Check if account is active
+    if (!user.is_active) {
+      return c.json({ 
+        error: "Account inactive", 
+        message: "Your account has been deactivated. Please contact support.",
+        code: "ACCOUNT_INACTIVE"
+      }, 401);
+    }
+
+    // Update last_login
     try {
       await prisma.user.update({
         where: { id: user.id },
@@ -130,11 +257,14 @@ export const userLoginController = async (c: Context): Promise<Response> => {
       });
     } catch (updateError) {
       console.error("Failed to update last_login:", updateError);
-      // Continue login even if update fails
     }
 
     // Generate token
-    const token = generateToken({ userId: user.id.toString(), email: user.email, userType: user.user_type });
+    const token = generateToken({ 
+      userId: user.id.toString(), 
+      email: user.email, 
+      userType: user.user_type 
+    });
 
     return c.json({ 
       success: true,
@@ -143,7 +273,10 @@ export const userLoginController = async (c: Context): Promise<Response> => {
         id: user.id,
         email: user.email,
         user_type: user.user_type,
-        last_login: new Date().toISOString(), // Confirm update in response
+        first_name: user.first_name,
+        last_name: user.last_name,
+        username: user.username,
+        last_login: new Date().toISOString(),
       },
     });
 
@@ -158,7 +291,7 @@ export const createEmployerController = async (c: Context) => {
     const formData = await c.req.formData();
 
     // Parse the main data payload (now expecting 'data' field with JSON string)
-    const payload = JSON.parse(formData.get('data') as string);
+    const payload = JSON.parse(formData.get("data") as string);
     const { user, employer, confirmPassword, agreeToTerms } = payload;
 
     // Validate input with the complete schema
@@ -166,33 +299,34 @@ export const createEmployerController = async (c: Context) => {
       user,
       employer,
       confirmPassword,
-      agreeToTerms
+      agreeToTerms,
     });
 
     if (!validation.success) {
       console.error("Validation failed:", validation.error.flatten());
-      return c.json({ 
-        success: false, 
-        errors: validation.error.flatten() 
-      }, 400);
+      return c.json(
+        {
+          success: false,
+          errors: validation.error.flatten(),
+        },
+        400
+      );
     }
 
     // Check for existing username/email
     const existingUser = await prisma.user.findFirst({
       where: {
-        OR: [
-          { username: user.username },
-          { email: user.email.toLowerCase() }
-        ],
+        OR: [{ username: user.username }, { email: user.email.toLowerCase() }],
       },
     });
 
     if (existingUser) {
       return c.json(
-        { 
-          message: existingUser.email === user.email 
-            ? "Email already exists" 
-            : "Username already taken" 
+        {
+          message:
+            existingUser.email === user.email
+              ? "Email already exists"
+              : "Username already taken",
         },
         400
       );
@@ -200,42 +334,42 @@ export const createEmployerController = async (c: Context) => {
 
     // Handle file upload (now using 'logo' field instead of 'logo_path')
     let logoPath: string | null = null;
-    const logoFile = formData.get('logo') as File | null;
+    const logoFile = formData.get("logo") as File | null;
 
     if (logoFile && logoFile.size > 0) {
       const buffer = await logoFile.arrayBuffer();
       const fileBytes = Buffer.from(buffer);
       const fileExt = path.extname(logoFile.name);
       const fileName = `${crypto.randomUUID()}${fileExt}`;
-      const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-      
+      const uploadDir = path.join(process.cwd(), "public", "uploads");
+
       // Ensure upload directory exists
       await fs.promises.mkdir(uploadDir, { recursive: true });
-      
+
       const filePath = path.join(uploadDir, fileName);
       await fs.promises.writeFile(filePath, fileBytes);
-      
+
       // Store relative path from public directory
       logoPath = `/uploads/${fileName}`;
     }
 
     // Handle photo file upload
     let photoPath: string | null = null;
-    const photoFile = formData.get('photo') as File | null;
+    const photoFile = formData.get("photo") as File | null;
 
     if (photoFile && photoFile.size > 0) {
       const buffer = await photoFile.arrayBuffer();
       const fileBytes = Buffer.from(buffer);
       const fileExt = path.extname(photoFile.name);
       const fileName = `user_${crypto.randomUUID()}${fileExt}`;
-      const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'photos');
-      
+      const uploadDir = path.join(process.cwd(), "public", "uploads", "photos");
+
       // Ensure upload directory exists
       await fs.promises.mkdir(uploadDir, { recursive: true });
-      
+
       const filePath = path.join(uploadDir, fileName);
       await fs.promises.writeFile(filePath, fileBytes);
-      
+
       // Store relative path from public directory
       photoPath = `/uploads/photos/${fileName}`;
     }
@@ -252,7 +386,9 @@ export const createEmployerController = async (c: Context) => {
           phone_number: user.phone,
           user_type: "employer",
           photo: photoPath,
-          is_active: false, // Require email verification for employers too
+              is_active: false,           // Should be false initially
+    is_email_verified: false,   // Should be false initially  
+    is_approved: false,         // Should be false for employers
         } as any,
       });
 
@@ -276,35 +412,39 @@ export const createEmployerController = async (c: Context) => {
     // Create verification token and send email
     try {
       const verificationToken = crypto.randomBytes(32).toString("hex");
-      await prisma.verificationToken.create({
-        data: {
-          user_id: result.userRecord.id,
-          token: verificationToken,
-          expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-        },
-      });
+await prisma.verificationToken.create({
+  data: {
+    user_id: Number(result.userRecord.id), // Explicitly convert to number
+    token: verificationToken,
+    expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  },
+});
 
       // Send verification email
-      const userName = result.userRecord.first_name || result.userRecord.email.split('@')[0];
+      const userName =
+        result.userRecord.first_name || result.userRecord.email.split("@")[0];
       const emailSent = await emailService.sendVerificationEmail(
-        result.userRecord.email, 
-        userName, 
+        result.userRecord.email,
+        userName,
         verificationToken
       );
 
-      if (!emailSent && process.env.NODE_ENV === 'development') {
+      if (!emailSent && process.env.NODE_ENV === "development") {
         // Fallback for development - log the email content
-        const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        const baseUrl = process.env.FRONTEND_URL || "http://localhost:5173";
         const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
         sendDevelopmentEmail(
           result.userRecord.email,
-          'Verify Your J4IPWDs Account',
+          "Verify Your J4IPWDs Account",
           `Click this link to verify your account: ${verificationUrl}`,
           `Click this link to verify your account: ${verificationUrl}`
         );
       }
     } catch (tokenError) {
-      console.error("Error creating verification token or sending email:", tokenError);
+      console.error(
+        "Error creating verification token or sending email:",
+        tokenError
+      );
       // Continue even if token creation fails
     }
 
@@ -315,7 +455,8 @@ export const createEmployerController = async (c: Context) => {
           userId: result.userRecord.id,
           employerId: result.employerRecord.id,
         },
-        message: "Employer account created successfully. Please check your email to verify your account.",
+        message:
+          "Employer account created successfully. Please check your email to verify your account.",
       },
       201
     );
@@ -327,11 +468,11 @@ export const createEmployerController = async (c: Context) => {
 
 export const getUserById = async (c: Context) => {
   try {
-    const userId = Number(c.req.param('id'));
-    const requestingUser = c.get('user'); // From middleware
+    const userId = Number(c.req.param("id"));
+    const requestingUser = c.get("user"); // From middleware
 
     // Optional: Verify user can access this data
-    if (requestingUser.id !== userId && requestingUser.user_type !== 'admin') {
+    if (requestingUser.id !== userId && requestingUser.user_type !== "admin") {
       return c.json({ error: "Unauthorized" }, 403);
     }
 
@@ -347,8 +488,8 @@ export const getUserById = async (c: Context) => {
         photo: true,
         username: true,
         created_at: true,
-        pwd_id_number: true,   // 👈 add this line
-      }
+        pwd_id_number: true, // 👈 add this line
+      },
     });
 
     if (!user) return c.json({ error: "User not found" }, 404);
@@ -359,7 +500,9 @@ export const getUserById = async (c: Context) => {
   }
 };
 
-export const forgotPasswordController = async (c: Context): Promise<Response> => {
+export const forgotPasswordController = async (
+  c: Context
+): Promise<Response> => {
   try {
     const { email } = await c.req.json();
 
@@ -370,24 +513,25 @@ export const forgotPasswordController = async (c: Context): Promise<Response> =>
 
     // Find user by email
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
+      where: { email: email.toLowerCase() },
     });
 
     // Always return success to prevent email enumeration
     if (!user) {
       return c.json({
         success: true,
-        message: "If an account with that email exists, a reset link has been sent"
+        message:
+          "If an account with that email exists, a reset link has been sent",
       });
     }
 
     // Delete any existing password reset tokens for this user
     await prisma.verificationToken.deleteMany({
-      where: { user_id: user.id }
+      where: { user_id: user.id },
     });
 
     // Generate reset token and expiry (1 hour)
-    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetToken = crypto.randomBytes(32).toString("hex");
     const resetTokenExpiry = new Date(Date.now() + 3600000);
 
     // Store token in VerificationToken table
@@ -396,7 +540,7 @@ export const forgotPasswordController = async (c: Context): Promise<Response> =>
         user_id: user.id,
         token: resetToken,
         expires: resetTokenExpiry,
-      }
+      },
     });
 
     // You can use the raw token in the reset link
@@ -408,22 +552,27 @@ export const forgotPasswordController = async (c: Context): Promise<Response> =>
 
     return c.json({
       success: true,
-      message: "If an account with that email exists, a reset link has been sent"
+      message:
+        "If an account with that email exists, a reset link has been sent",
     });
-
   } catch (error) {
     console.error("Forgot password error:", error);
     return c.json({ error: "Error processing password reset request" }, 500);
   }
 };
 
-export const resetPasswordController = async (c: Context): Promise<Response> => {
+export const resetPasswordController = async (
+  c: Context
+): Promise<Response> => {
   try {
     const { token, password, confirmPassword } = await c.req.json();
 
     // Validate input
     if (!token || !password || !confirmPassword) {
-      return c.json({ error: "Token, password, and confirmation are required" }, 400);
+      return c.json(
+        { error: "Token, password, and confirmation are required" },
+        400
+      );
     }
 
     if (password !== confirmPassword) {
@@ -432,16 +581,16 @@ export const resetPasswordController = async (c: Context): Promise<Response> => 
 
     // Debug logging
     console.log("Looking for token:", token);
-    
+
     // Find the verification token
     const verificationToken = await prisma.verificationToken.findFirst({
-      where: { 
+      where: {
         token: token,
         expires: {
-          gt: new Date() // Check if token is not expired
-        }
+          gt: new Date(), // Check if token is not expired
+        },
       },
-      include: { user: true }
+      include: { user: true },
     });
 
     console.log("Found token:", verificationToken);
@@ -459,23 +608,26 @@ export const resetPasswordController = async (c: Context): Promise<Response> => 
         where: { id: verificationToken.user_id },
         data: {
           password_hash: hashedPassword,
-        }
+        },
       }),
       prisma.verificationToken.delete({
-        where: { id: verificationToken.id }
-      })
+        where: { id: verificationToken.id },
+      }),
     ]);
 
     // Send confirmation email
     try {
       // Create a simple email sending function since sendEmail doesn't exist
-      const userName = verificationToken.user.first_name || verificationToken.user.username || "User";
+      const userName =
+        verificationToken.user.first_name ||
+        verificationToken.user.username ||
+        "User";
       const emailContent = `
         <p>Hello ${userName},</p>
         <p>Your password has been successfully changed.</p>
         <p>If you didn't make this change, please contact our support team immediately.</p>
       `;
-      
+
       // Use your existing email service's transporter
       await emailService.sendPasswordResetConfirmation(
         verificationToken.user.email,
@@ -488,21 +640,23 @@ export const resetPasswordController = async (c: Context): Promise<Response> => 
 
     return c.json({
       success: true,
-      message: "Password updated successfully"
+      message: "Password updated successfully",
     });
-
   } catch (error) {
     console.error("Reset password error:", error);
-    
+
     // More detailed error logging
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       console.error("Prisma error code:", error.code);
     }
-    
-    return c.json({ 
-      error: "Error resetting password",
-      details: process.env.NODE_ENV === 'development'
-    }, 500);
+
+    return c.json(
+      {
+        error: "Error resetting password",
+        details: process.env.NODE_ENV === "development",
+      },
+      500
+    );
   }
 };
 
@@ -533,7 +687,6 @@ export const verifyEmailController = async (c: Context): Promise<Response> => {
 
     // Check if token is expired
     if (verificationToken.expires < new Date()) {
-      // Delete expired token
       await prisma.verificationToken.delete({
         where: { id: verificationToken.id }
       });
@@ -545,10 +698,25 @@ export const verifyEmailController = async (c: Context): Promise<Response> => {
       }, 400);
     }
 
-    // Activate the user account
-    await prisma.user.update({
-      where: { id: verificationToken.user_id },
-      data: { is_active: true }
+    // ✅ FIX: Ensure user_id is treated as number and handle type conversion
+    const userId = Number(verificationToken.user_id);
+    
+    if (isNaN(userId)) {
+      console.error("Invalid user_id format:", verificationToken.user_id);
+      return c.json({
+        success: false,
+        error: "Invalid user ID format"
+      }, 500);
+    }
+
+    // Update user based on user type
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { 
+        is_email_verified: true,
+        // For employers: set active to false until admin approval
+        is_active: verificationToken.user.user_type !== 'employer'
+      }
     });
 
     // Delete the used token
@@ -556,13 +724,38 @@ export const verifyEmailController = async (c: Context): Promise<Response> => {
       where: { id: verificationToken.id }
     });
 
-    return c.json({
-      success: true,
-      message: "Email verified successfully! You can now log in to your account."
-    });
+    // Return different messages based on user type
+    if (verificationToken.user.user_type === 'employer') {
+      return c.json({
+        success: true,
+        requiresApproval: true,
+        message: "Email verified successfully! Your employer account is now pending admin approval. You will receive an email notification once your account is approved (typically within 1-2 business days)."
+      });
+    } else {
+      return c.json({
+        success: true,
+        message: "Email verified successfully! You can now log in to your account."
+      });
+    }
 
   } catch (error) {
     console.error("Email verification error:", error);
+    
+    // More detailed error logging
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      console.error("Prisma error code:", error.code);
+      console.error("Prisma error details:", error.meta);
+      
+      // Handle specific Prisma errors
+      if (error.code === 'P2025') {
+        return c.json({
+          success: false,
+          error: "User not found",
+          message: "The user associated with this verification token no longer exists."
+        }, 404);
+      }
+    }
+    
     return c.json({
       success: false,
       error: "Verification failed",
@@ -572,41 +765,52 @@ export const verifyEmailController = async (c: Context): Promise<Response> => {
 };
 
 // Resend verification email controller
-export const resendVerificationController = async (c: Context): Promise<Response> => {
+export const resendVerificationController = async (
+  c: Context
+): Promise<Response> => {
   try {
     const { email } = await c.req.json();
 
     if (!email) {
-      return c.json({
-        success: false,
-        error: "Email is required"
-      }, 400);
+      return c.json(
+        {
+          success: false,
+          error: "Email is required",
+        },
+        400
+      );
     }
 
     // Find the user
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
+      where: { email: email.toLowerCase() },
     });
 
     if (!user) {
-      return c.json({
-        success: false,
-        error: "User not found"
-      }, 404);
+      return c.json(
+        {
+          success: false,
+          error: "User not found",
+        },
+        404
+      );
     }
 
     // Check if user is already verified
     if (user.is_active) {
-      return c.json({
-        success: false,
-        error: "Account already verified",
-        message: "Your account is already verified. You can log in normally."
-      }, 400);
+      return c.json(
+        {
+          success: false,
+          error: "Account already verified",
+          message: "Your account is already verified. You can log in normally.",
+        },
+        400
+      );
     }
 
     // Delete any existing verification tokens for this user
     await prisma.verificationToken.deleteMany({
-      where: { user_id: user.id }
+      where: { user_id: user.id },
     });
 
     // Create new verification token
@@ -620,20 +824,20 @@ export const resendVerificationController = async (c: Context): Promise<Response
     });
 
     // Send verification email
-    const userName = user.first_name || user.email.split('@')[0];
+    const userName = user.first_name || user.email.split("@")[0];
     const emailSent = await emailService.sendVerificationEmail(
-      user.email, 
-      userName, 
+      user.email,
+      userName,
       verificationToken
     );
 
-    if (!emailSent && process.env.NODE_ENV === 'development') {
+    if (!emailSent && process.env.NODE_ENV === "development") {
       // Fallback for development - log the email content
-      const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const baseUrl = process.env.FRONTEND_URL || "http://localhost:5173";
       const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
       sendDevelopmentEmail(
         user.email,
-        'Verify Your J4IPWDs Account',
+        "Verify Your J4IPWDs Account",
         `Click this link to verify your account: ${verificationUrl}`,
         `Click this link to verify your account: ${verificationUrl}`
       );
@@ -641,20 +845,23 @@ export const resendVerificationController = async (c: Context): Promise<Response
 
     return c.json({
       success: true,
-      message: emailSent 
-        ? "Verification email sent successfully" 
+      message: emailSent
+        ? "Verification email sent successfully"
         : "Account created. Please check your email for verification link.",
       // Remove this in production - only for development
-      token: process.env.NODE_ENV === 'development' ? verificationToken : undefined
+      token:
+        process.env.NODE_ENV === "development" ? verificationToken : undefined,
     });
-
   } catch (error) {
     console.error("Resend verification error:", error);
-    return c.json({
-      success: false,
-      error: "Failed to resend verification email",
-      message: "An error occurred. Please try again later."
-    }, 500);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to resend verification email",
+        message: "An error occurred. Please try again later.",
+      },
+      500
+    );
   }
 };
 
@@ -663,21 +870,24 @@ export const testEmailController = async (c: Context): Promise<Response> => {
   try {
     // Test connection first
     const connectionTest = await emailService.testConnection();
-    
+
     if (!connectionTest) {
-      return c.json({
-        success: false,
-        error: "Email connection failed",
-        message: "Check your SMTP configuration in .env file"
-      }, 500);
+      return c.json(
+        {
+          success: false,
+          error: "Email connection failed",
+          message: "Check your SMTP configuration in .env file",
+        },
+        500
+      );
     }
 
     // Try to send a test email
-    const testEmail = process.env.SMTP_USER || 'test@example.com';
+    const testEmail = process.env.SMTP_USER || "test@example.com";
     const testResult = await emailService.sendVerificationEmail(
       testEmail,
-      'Test User',
-      'test-token-123'
+      "Test User",
+      "test-token-123"
     );
 
     return c.json({
@@ -692,40 +902,44 @@ export const testEmailController = async (c: Context): Promise<Response> => {
         // Don't expose password in response
         hasPassword: !!process.env.SMTP_PASS,
         frontendUrl: process.env.FRONTEND_URL,
-        nodeEnv: process.env.NODE_ENV
-      }
+        nodeEnv: process.env.NODE_ENV,
+      },
     });
-
   } catch (error) {
     console.error("Email test error:", error);
-    return c.json({
-      success: false,
-      error: "Email test failed",
-      message: error instanceof Error ? error.message : "Unknown error",
-      config: {
-        host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT,
-        user: process.env.SMTP_USER,
-        hasPassword: !!process.env.SMTP_PASS,
-        frontendUrl: process.env.FRONTEND_URL,
-        nodeEnv: process.env.NODE_ENV
-      }
-    }, 500);
+    return c.json(
+      {
+        success: false,
+        error: "Email test failed",
+        message: error instanceof Error ? error.message : "Unknown error",
+        config: {
+          host: process.env.SMTP_HOST,
+          port: process.env.SMTP_PORT,
+          user: process.env.SMTP_USER,
+          hasPassword: !!process.env.SMTP_PASS,
+          frontendUrl: process.env.FRONTEND_URL,
+          nodeEnv: process.env.NODE_ENV,
+        },
+      },
+      500
+    );
   }
 };
 
 /**
  * Validate password reset token (for frontend to check before showing reset form)
  */
-export const validateResetTokenController = async (c: Context): Promise<Response> => {
+export const validateResetTokenController = async (
+  c: Context
+): Promise<Response> => {
   try {
-    const token = c.req.query('token');
+    const token = c.req.query("token");
     if (!token) {
       return c.json({ valid: false, error: "Token is required" }, 400);
     }
 
     const verificationToken = await prisma.verificationToken.findUnique({
-      where: { token }
+      where: { token },
     });
 
     if (!verificationToken || verificationToken.expires < new Date()) {
@@ -740,18 +954,24 @@ export const validateResetTokenController = async (c: Context): Promise<Response
 };
 
 // Simple email sending function (replacement for the missing function)
-const sendEmail = async (emailData: { to: string; subject: string; html: string }) => {
+const sendEmail = async (emailData: {
+  to: string;
+  subject: string;
+  html: string;
+}) => {
   try {
     // Use the existing email service's transporter
     const mailOptions = {
-      from: `"J4IPWDs" <${process.env.SMTP_USER || 'j4pwdsno.reply@gmail.com'}>`,
+      from: `"J4IPWDs" <${
+        process.env.SMTP_USER || "j4pwdsno.reply@gmail.com"
+      }>`,
       to: emailData.to,
       subject: emailData.subject,
       html: emailData.html,
     };
 
     const result = await emailService.sendMail(mailOptions);
-    console.log('Email sent successfully:', result.messageId);
+    console.log("Email sent successfully:", result.messageId);
     return true;
   } catch (error) {
     console.error("Email sending failed:", error);
@@ -762,38 +982,37 @@ const sendEmail = async (emailData: { to: string; subject: string; html: string 
 export const getStatsController = async (c: Context): Promise<Response> => {
   try {
     // Fetch all statistics in parallel for better performance
-    const [
-      activeUsersCount,
-      jobListingsCount,
-      partnerEmployersCount
-    ] = await Promise.all([
-      // Count active users (PWD and general users, excluding employers)
-      prisma.user.count({
-        where: {
-          user_type: {
-            in: ["pwd", "general", "employer"]
+    const [activeUsersCount, jobListingsCount, partnerEmployersCount] =
+      await Promise.all([
+        // Count active users (PWD and general users, excluding employers)
+        prisma.user.count({
+          where: {
+            user_type: {
+              in: ["pwd", "general", "employer"],
+            },
+            is_active: true,
           },
-          is_active: true
-        }
-      }),
-      
-      // Count job listings (assuming you have a Job table)
-      // Replace 'job' with your actual table name if different
-      prisma.jobListing.count({
-        where: {
-          // Add any filters for active/published jobs if needed
-          // status: 'active' or similar
-        }
-      }).catch(() => 0), // Return 0 if job table doesn't exist yet
-      
-      // Count employers
-      prisma.user.count({
-        where: {
-          user_type: "employer",
-          is_active: true
-        }
-      })
-    ]);
+        }),
+
+        // Count job listings (assuming you have a Job table)
+        // Replace 'job' with your actual table name if different
+        prisma.jobListing
+          .count({
+            where: {
+              // Add any filters for active/published jobs if needed
+              // status: 'active' or similar
+            },
+          })
+          .catch(() => 0), // Return 0 if job table doesn't exist yet
+
+        // Count employers
+        prisma.user.count({
+          where: {
+            user_type: "employer",
+            is_active: true,
+          },
+        }),
+      ]);
 
     // Format numbers for display (e.g., 1000 -> "1,000+")
     const formatStat = (num: number): string => {
@@ -808,17 +1027,17 @@ export const getStatsController = async (c: Context): Promise<Response> => {
       data: {
         activeUsers: {
           count: activeUsersCount,
-          formatted: formatStat(activeUsersCount)
+          formatted: formatStat(activeUsersCount),
         },
         jobListings: {
           count: jobListingsCount,
-          formatted: formatStat(jobListingsCount)
+          formatted: formatStat(jobListingsCount),
         },
         partnerEmployers: {
           count: partnerEmployersCount,
-          formatted: formatStat(partnerEmployersCount)
-        }
-      }
+          formatted: formatStat(partnerEmployersCount),
+        },
+      },
     });
   } catch (error) {
     console.error("Error fetching stats:", error);
@@ -827,7 +1046,7 @@ export const getStatsController = async (c: Context): Promise<Response> => {
         success: false,
         error: "Failed to fetch statistics",
         message: "An error occurred while retrieving platform statistics.",
-        details: error instanceof Error ? error.message : "Unknown error"
+        details: error instanceof Error ? error.message : "Unknown error",
       },
       500
     );

@@ -10,6 +10,8 @@ import {
  resetPasswordController,
  validateResetTokenController,
   getStatsController,
+  getPendingEmployersController,
+  approveEmployerController,
 } from "./index.js";
 import { authMiddleware } from "../../utils/auth.js";
 
@@ -23,7 +25,9 @@ const auth = new Hono()
   .post("/forgot-password", forgotPasswordController)
   .get("/test-email", testEmailController)
   .get("/validate-reset-token", validateResetTokenController) // To verify token validity
-  .post("/reset-password", resetPasswordController);
+  .post("/reset-password", resetPasswordController)
+  .get("/admin/pending-employers", authMiddleware, getPendingEmployersController)
+  .post("/admin/approve-employer", authMiddleware, approveEmployerController)
 
 
 export default auth;

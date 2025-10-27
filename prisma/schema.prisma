@@ -182,19 +182,23 @@ enum UserType {
 }
 
 model User {
-  id            Int       @id @default(autoincrement())
-  username      String    @unique
-  email         String    @unique
-  password_hash String
-  user_type     UserType // Now uses the enum
-  pwd_id_number String?  // 👈 add this (nullable if not all users are PWD)
-  first_name    String?
-  last_name     String?
-  phone_number  String?
-  photo         String? // Profile photo file path
-  created_at    DateTime  @default(now())
-  last_login    DateTime?
-  is_active     Boolean   @default(true)
+  id                Int       @id @default(autoincrement())
+  username          String    @unique
+  email             String    @unique
+  password_hash     String
+  user_type         UserType
+  pwd_id_number     String?
+  first_name        String?
+  last_name         String?
+  phone_number      String?
+  photo             String?
+  created_at        DateTime  @default(now())
+  last_login        DateTime?
+  is_active         Boolean   @default(true)
+  is_email_verified Boolean   @default(false) // NEW: Track email verification
+  is_approved       Boolean   @default(true)   // NEW: Admin approval (default true for non-employers)
+  approved_at       DateTime? // NEW: When admin approved
+  approved_by       Int?      // NEW: Which admin approved
 
   employer           Employer?
   verificationTokens VerificationToken[]

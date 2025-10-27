@@ -492,13 +492,33 @@ export const getEmployerApplicantsController = async (c: Context): Promise<Respo
       }, 401);
     }
 
-    const userId = verifiedToken.userId;
+    // ✅ SAFE FIX: Handle both string and number user IDs
+    let userId: number;
+    if (typeof verifiedToken.userId === 'string') {
+      userId = parseInt(verifiedToken.userId, 10);
+      if (isNaN(userId)) {
+        console.error('[ERROR] Invalid user ID format:', verifiedToken.userId);
+        return c.json({ 
+          success: false, 
+          error: "Invalid user ID format" 
+        }, 400);
+      }
+    } else if (typeof verifiedToken.userId === 'number') {
+      userId = verifiedToken.userId;
+    } else {
+      console.error('[ERROR] Unexpected user ID type:', typeof verifiedToken.userId);
+      return c.json({ 
+        success: false, 
+        error: "Invalid user ID type" 
+      }, 400);
+    }
+
+    console.log('[DEBUG] User ID (processed):', userId, 'Type:', typeof userId);
 
     // Find the Employer profile for this user
     const employer = await prisma.employer.findUnique({
-      where: { user_id: userId }
+      where: { user_id: userId } // Now passing as number
     });
-    
     if (!employer) {
       console.log('[INFO] No Employer profile found for user:', userId);
       return c.json({ 
