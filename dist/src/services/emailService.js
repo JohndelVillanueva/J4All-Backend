@@ -22,7 +22,7 @@ const getVerificationEmailTemplate = (userName, verificationUrl) => ({
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Verify Your J4PWDs Account</title>
+      <title>Verify Your J4PWDs Account</title>
       <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -36,12 +36,12 @@ const getVerificationEmailTemplate = (userName, verificationUrl) => ({
     <body>
       <div class="container">
         <div class="header">
-                  <div class="logo">J4PWDs</div>
-        <h1>Welcome to J4PWDs!</h1>
+          <div class="logo">J4PWDs</div>
+          <h1>Welcome to J4PWDs!</h1>
         </div>
         <div class="content">
           <h2>Hi ${userName},</h2>
-                      <p>Thank you for creating your account with J4PWDs! To complete your registration and start accessing personalized opportunities, please verify your email address.</p>
+          <p>Thank you for creating your account with J4PWDs! To complete your registration and start accessing personalized opportunities, please verify your email address.</p>
           
           <div style="text-align: center;">
             <a href="${verificationUrl}" class="button">Verify Email Address</a>
@@ -258,6 +258,109 @@ const getResendVerificationEmailTemplate = (userName, verificationUrl) => ({
     If you have any questions, please contact us at support@J4PWDs.com
   `
 });
+// NEW: Approval email template for employer accounts
+const getApprovalEmailTemplate = (userName, loginUrl) => ({
+    subject: 'Your Employer Account Has Been Approved! 🎉',
+    html: `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Account Approved - J4PWDs</title>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+        .button { display: inline-block; padding: 12px 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+        .info-box { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 15px; margin: 20px 0; border-radius: 5px; }
+        .footer { text-align: center; color: #666; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; }
+        .logo { font-size: 24px; font-weight: bold; margin-bottom: 10px; }
+        .success-icon { font-size: 48px; margin-bottom: 20px; }
+        ul { text-align: left; display: inline-block; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <div class="logo">J4PWDs</div>
+          <div class="success-icon">🎉</div>
+          <h1>Account Approved!</h1>
+        </div>
+        <div class="content">
+          <p>Hello ${userName},</p>
+          
+          <p>Great news! Your employer account on <strong>J4PWDs</strong> has been approved by our administrators.</p>
+          
+          <div class="info-box">
+            <strong>✅ Your account is now fully active!</strong>
+            <p style="margin: 10px 0 0 0;">You can now log in and start posting job opportunities, connecting with talented professionals, and building your inclusive workforce.</p>
+          </div>
+
+          <p><strong>What you can do now:</strong></p>
+          <ul>
+            <li>Post job listings for diverse candidates</li>
+            <li>Browse qualified job seekers</li>
+            <li>Manage applications and communicate with applicants</li>
+            <li>Customize your company profile</li>
+          </ul>
+
+          <div style="text-align: center;">
+            <a href="${loginUrl}" class="button">Log In to Your Account</a>
+          </div>
+
+          <p>If the button above doesn't work, you can copy and paste this link into your browser:</p>
+          <p style="word-break: break-all; color: #667eea;">${loginUrl}</p>
+
+          <p>If you have any questions or need assistance getting started, our support team is here to help!</p>
+
+          <p>Welcome to the J4PWDs community!</p>
+          
+          <p>Best regards,<br>
+          <strong>The J4PWDs Team</strong></p>
+        </div>
+        <div class="footer">
+          <p>This is an automated message. Please do not reply to this email.</p>
+          <p>If you have any questions, please contact us at support@J4PWDs.com</p>
+          <p>&copy; ${new Date().getFullYear()} J4PWDs. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `,
+    text: `
+    Account Approved! - J4PWDs
+    
+    Hello ${userName},
+
+    Great news! Your employer account on J4PWDs has been approved by our administrators.
+
+    ✅ Your account is now fully active!
+    
+    You can now log in and start posting job opportunities, connecting with talented professionals, and building your inclusive workforce.
+
+    What you can do now:
+    - Post job listings for diverse candidates
+    - Browse qualified job seekers
+    - Manage applications and communicate with applicants
+    - Customize your company profile
+
+    Log in to your account: ${loginUrl}
+
+    If you have any questions or need assistance getting started, our support team is here to help!
+
+    Welcome to the J4PWDs community!
+
+    Best regards,
+    The J4PWDs Team
+    
+    ---
+    This is an automated message. Please do not reply to this email.
+    If you have any questions, please contact us at support@J4PWDs.com
+    © ${new Date().getFullYear()} J4PWDs. All rights reserved.
+  `
+});
 // Email service class
 export class EmailService {
     transporter;
@@ -271,7 +374,7 @@ export class EmailService {
             const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
             const emailTemplate = getPasswordResetEmailTemplate(userName, resetUrl);
             const mailOptions = {
-                from: `"J4IPWDs" <${emailConfig.auth.user}>`,
+                from: `"J4PWDs" <${emailConfig.auth.user}>`,
                 to: userEmail,
                 subject: emailTemplate.subject,
                 html: emailTemplate.html,
@@ -291,7 +394,7 @@ export class EmailService {
         try {
             const emailTemplate = getPasswordResetConfirmationTemplate(userName);
             const mailOptions = {
-                from: `"J4IPWDs" <${emailConfig.auth.user}>`,
+                from: `"J4PWDs" <${emailConfig.auth.user}>`,
                 to: userEmail,
                 subject: emailTemplate.subject,
                 html: emailTemplate.html,
@@ -313,7 +416,7 @@ export class EmailService {
             const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
             const emailTemplate = getVerificationEmailTemplate(userName, verificationUrl);
             const mailOptions = {
-                from: `"J4IPWDs" <${emailConfig.auth.user}>`,
+                from: `"J4PWDs" <${emailConfig.auth.user}>`,
                 to: userEmail,
                 subject: emailTemplate.subject,
                 html: emailTemplate.html,
@@ -335,7 +438,7 @@ export class EmailService {
             const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
             const emailTemplate = getResendVerificationEmailTemplate(userName, verificationUrl);
             const mailOptions = {
-                from: `"J4IPWDs" <${emailConfig.auth.user}>`,
+                from: `"J4PWDs" <${emailConfig.auth.user}>`,
                 to: userEmail,
                 subject: emailTemplate.subject,
                 html: emailTemplate.html,
@@ -347,6 +450,28 @@ export class EmailService {
         }
         catch (error) {
             console.error('Failed to send resend verification email:', error);
+            return false;
+        }
+    }
+    // NEW: Send approval email for employer accounts
+    async sendApprovalEmail(userEmail, userName) {
+        try {
+            const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            const loginUrl = `${baseUrl}/login`;
+            const emailTemplate = getApprovalEmailTemplate(userName, loginUrl);
+            const mailOptions = {
+                from: `"J4PWDs" <${emailConfig.auth.user}>`,
+                to: userEmail,
+                subject: emailTemplate.subject,
+                html: emailTemplate.html,
+                text: emailTemplate.text,
+            };
+            const result = await this.transporter.sendMail(mailOptions);
+            console.log('Approval email sent successfully:', result.messageId);
+            return true;
+        }
+        catch (error) {
+            console.error('Failed to send approval email:', error);
             return false;
         }
     }
