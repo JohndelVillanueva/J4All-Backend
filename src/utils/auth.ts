@@ -3,11 +3,12 @@ import type { Context } from 'hono';
 import jwt from 'jsonwebtoken';
 
 const SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
 export interface UserPayload {
   id: string | number;
   email: string;
   userType: string;
-  userId: Number;
+  userId: number; // Changed to lowercase 'number'
 }
 
 export async function verifyPassword(input: string, hashed: string) {
@@ -20,12 +21,40 @@ export function generateToken(payload: object): string {
   });
 }
 
-export function verifyToken(token: string): any {
+// ✅ FIX: Remove async - jwt.verify is synchronous
+export function verifyToken(token: string): { userId: number } {
   try {
-    return jwt.verify(token, SECRET);
+    console.log('[AUTH] Verifying token:', token.slice(0, 10) + '...');
+    
+    const decoded = jwt.verify(token, SECRET) as any;
+    console.log('[AUTH] Decoded token payload:', decoded);
+    
+    // ✅ Extract userId from different possible fields
+    const userId = 
+      decoded.userId || 
+      decoded.id || 
+      decoded.sub || 
+      decoded.user_id;
+    
+    if (!userId) {
+      console.error('[AUTH ERROR] No user ID found in token payload');
+      throw new Error("No user ID in token");
+    }
+    
+    // ✅ Convert to number
+    const userIdNum = parseInt(userId.toString(), 10);
+    
+    if (isNaN(userIdNum)) {
+      console.error('[AUTH ERROR] Invalid user ID format:', userId);
+      throw new Error("Invalid user ID format");
+    }
+    
+    console.log('[AUTH] Successfully verified token for user ID:', userIdNum);
+    
+    return { userId: userIdNum };
   } catch (error) {
     console.error('[AUTH ERROR] Token verification failed:', error);
-    throw new Error('Invalid or expired token');
+    throw new Error("Invalid token");
   }
 }
 
@@ -47,23 +76,24 @@ export const authMiddleware = async (c: Context, next: Function) => {
   console.log('[AUTH] Token received:', token.slice(0, 10) + '...');
 
   try {
+    // ✅ FIX: Remove await since verifyToken is now synchronous
     const decoded = verifyToken(token);
     console.log('[AUTH] Decoded token:', decoded);
-    // Accept both userId and id for robustness
-    const userId = decoded.userId || decoded.id;
+    
+    const userId = decoded.userId;
     if (!userId) {
       console.error('[AUTH ERROR] Token missing user id:', decoded);
       return c.json({ error: "Invalid token payload" }, 401);
     }
-    // Convert id to number if possible
+    
+    // Set user data in context
     const user = {
-      ...decoded,
-      id: typeof userId === 'string' ? Number(userId) : userId
+      id: userId,
+      userId: userId, // Set both for compatibility
+      ...decoded
     };
-    if (!user.id || isNaN(user.id)) {
-      console.error('[AUTH ERROR] Invalid user id in token:', user.id);
-      return c.json({ error: "Invalid user id in token" }, 401);
-    }
+    
+    console.log('[AUTH] Setting user in context:', user);
     c.set('user', user);
     await next();
   } catch (error) {
