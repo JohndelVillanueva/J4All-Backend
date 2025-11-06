@@ -1,7 +1,19 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { auth, jobPosting, routes, skill, applicant, notifications, messages, photos, interview, admin } from './controllers/routes.js'
+import { 
+  auth, 
+  jobPosting, 
+  routes, 
+  skill, 
+  applicant, 
+  notifications, 
+  messages, 
+  photos, 
+  interview, 
+  admin,
+  recommendations // Add this import
+} from './controllers/routes.js'
 import { serveStatic } from 'hono/serve-static';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import path from 'path';
@@ -22,7 +34,6 @@ app.use("/uploads/*", serveStatic({
     console.log('Resolved fullpath for static:', fullPath);
     try {
       const fileBuffer = await fs.readFile(fullPath);
-      // Convert Buffer to Uint8Array which is compatible with Data type
       return new Uint8Array(fileBuffer);
     } catch (error) {
       console.error('Error reading file:', error);
@@ -33,7 +44,7 @@ app.use("/uploads/*", serveStatic({
 
 // CORS middleware
 app.use('/*', cors({
-  origin: [FRONTEND_URL], // Use environment variable
+  origin: [FRONTEND_URL],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowHeaders: ['Content-Type', 'Authorization'],
   exposeHeaders: ['Content-Length', 'X-Kuma-Revision'],
@@ -41,7 +52,7 @@ app.use('/*', cors({
   credentials: true,
 }));
 
-// Request logging middleware (consolidated)
+// Request logging middleware
 app.use('*', async (c, next) => {
   const startTime = Date.now();
   console.log(`[${new Date().toISOString()}] ${c.req.method} ${c.req.path}`);
@@ -76,6 +87,9 @@ mountRoutes(messages, '/api/messages');
 mountRoutes(photos, '/api/photos');
 mountRoutes(admin, '/api/admin');
 
+// Mount the new recommendation routes
+mountRoutes(recommendations, '/api/recommendations'); // Add this line
+
 console.log('\n✅ Route registration complete\n');
 
 // Debug route to check what routes are registered
@@ -87,6 +101,9 @@ app.get('/debug-routes', (c) => {
       'GET /api/stats',
       'POST /api/login',
       'GET /health',
+      'POST /api/recommendations/jobs',
+      'GET /api/recommendations/skills',
+      'GET /api/recommendations/stats'
     ]
   });
 });
@@ -128,5 +145,6 @@ serve({
   console.log(`  - http://localhost:${info.port}/health`);
   console.log(`  - http://localhost:${info.port}/debug-routes`);
   console.log(`  - http://localhost:${info.port}/api/stats`);
+  console.log(`  - http://localhost:${info.port}/api/recommendations/skills`);
   console.log(`${'='.repeat(50)}\n`);
 });

@@ -9,6 +9,9 @@ import photoRoutes from './users/photoRoutes.js';
 import interviewRoutes from './interview/routes.js';
 import adminRoutes from './admin/routes.js';
 
+// Import the new recommendation routes
+import recommendationRoutes from './applicant/jobRecommendation/routes.js';
+
 export const routes = [usersRoutes] as const;
 export const auth = [authRoutes] as const;
 export const jobPosting = [jobPostingRoutes] as const;
@@ -20,5 +23,7 @@ export const photos = [photoRoutes] as const;
 export const interview = [interviewRoutes] as const;
 export const admin = [adminRoutes] as const;
 
-export type AppRouter = (typeof routes)[number];
+// Export the new recommendation routes
+export const recommendations = [recommendationRoutes] as const;
 
+export type AppRouter = (typeof routes)[number];
