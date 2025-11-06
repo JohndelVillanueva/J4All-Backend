@@ -22,14 +22,18 @@ export function generateToken(payload: object): string {
 }
 
 // ✅ FIX: Remove async - jwt.verify is synchronous
-export function verifyToken(token: string): { userId: number } {
+export function verifyToken(token: string): { 
+  userId: number; 
+  userType: string;  // ✅ Add this
+  email?: string;
+} {
   try {
     console.log('[AUTH] Verifying token:', token.slice(0, 10) + '...');
     
     const decoded = jwt.verify(token, SECRET) as any;
     console.log('[AUTH] Decoded token payload:', decoded);
     
-    // ✅ Extract userId from different possible fields
+    // Extract userId from different possible fields
     const userId = 
       decoded.userId || 
       decoded.id || 
@@ -41,17 +45,30 @@ export function verifyToken(token: string): { userId: number } {
       throw new Error("No user ID in token");
     }
     
-    // ✅ Convert to number
+    // Convert to number
     const userIdNum = parseInt(userId.toString(), 10);
     
     if (isNaN(userIdNum)) {
       console.error('[AUTH ERROR] Invalid user ID format:', userId);
       throw new Error("Invalid user ID format");
     }
+
+    // ✅ CRITICAL FIX: Extract userType from token
+    const userType = decoded.userType || decoded.user_type;
     
-    console.log('[AUTH] Successfully verified token for user ID:', userIdNum);
+    if (!userType) {
+      console.error('[AUTH ERROR] No userType found in token payload');
+      throw new Error("No userType in token");
+    }
     
-    return { userId: userIdNum };
+    console.log('[AUTH] Successfully verified token for user ID:', userIdNum, 'Type:', userType);
+    
+    // ✅ RETURN FULL PAYLOAD including userType
+    return {
+      userId: userIdNum,
+      userType: userType, // This is now included
+      email: decoded.email
+    };
   } catch (error) {
     console.error('[AUTH ERROR] Token verification failed:', error);
     throw new Error("Invalid token");

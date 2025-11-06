@@ -50,16 +50,23 @@ const STATUS_CODES = {
   INTERNAL_SERVER_ERROR: 500 as const,
 };
 
-export const createJobPostingController = async (
-  c: Context
-): Promise<Response> => {
-  // Enhanced authentication check
+export const createJobPostingController = async (c: Context): Promise<Response> => {
+  // Enhanced debugging - add this
+  console.log("[AUTH DEBUG] Full context user:", c.get("user"));
+  console.log("[AUTH DEBUG] Context userId:", c.get("userId"));
+  console.log("[AUTH DEBUG] Context userType:", c.get("userType"));
+  
   const user = c.get("user") || {
     id: c.get("userId"),
     userType: c.get("userType"),
   };
-
+  
+  console.log("[AUTH DEBUG] Final user object:", user);
+  console.log("[AUTH DEBUG] User ID exists:", !!user?.id);
+  console.log("[AUTH DEBUG] User Type:", user?.userType);
+  
   if (!user?.id) {
+    console.log("[AUTH DEBUG] No user ID - returning UNAUTHENTICATED");
     return c.json(
       {
         success: false,
@@ -71,6 +78,7 @@ export const createJobPostingController = async (
   }
 
   if (user.userType !== "employer") {
+    console.log("[AUTH DEBUG] User type is not employer:", user.userType);
     return c.json(
       {
         success: false,
