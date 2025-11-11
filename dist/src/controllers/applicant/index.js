@@ -41,7 +41,7 @@ export const applyForJobController = async (c) => {
             }, 401);
         }
         const token = authHeader.split(' ')[1];
-        const verifiedToken = await verifyToken(token);
+        const verifiedToken = verifyToken(token);
         if (!verifiedToken || !verifiedToken.userId) {
             console.error('[ERROR] Invalid or expired token');
             return c.json({
@@ -288,7 +288,7 @@ export const getUserApplicationsController = async (c) => {
             }, 401);
         }
         const token = authHeader.split(' ')[1];
-        const verifiedToken = await verifyToken(token);
+        const verifiedToken = verifyToken(token);
         if (!verifiedToken || !verifiedToken.userId) {
             console.error('[ERROR] Invalid or expired token');
             return c.json({
@@ -438,7 +438,7 @@ export const getEmployerApplicantsController = async (c) => {
             }, 401);
         }
         const token = authHeader.split(' ')[1];
-        const verifiedToken = await verifyToken(token);
+        const verifiedToken = verifyToken(token);
         if (!verifiedToken || !verifiedToken.userId) {
             console.error('[ERROR] Invalid or expired token');
             return c.json({
@@ -630,7 +630,7 @@ export const updateApplicationStatusController = async (c) => {
             }, 401);
         }
         const token = authHeader.split(' ')[1];
-        const verifiedToken = await verifyToken(token);
+        const verifiedToken = verifyToken(token);
         if (!verifiedToken || !verifiedToken.userId) {
             console.error('[ERROR] Invalid or expired token');
             return c.json({
@@ -839,7 +839,7 @@ export const realTimeUpdatesController = async (c) => {
             return c.json({ success: false, error: "Missing authorization" }, 401);
         }
         const token = authHeader.split(' ')[1];
-        const verifiedToken = await verifyToken(token);
+        const verifiedToken = verifyToken(token);
         if (!verifiedToken || !verifiedToken.userId) {
             return c.json({ success: false, error: "Invalid token" }, 401);
         }
@@ -903,7 +903,7 @@ export const saveJobController = async (c) => {
             }, 401);
         }
         const token = authHeader.split(' ')[1];
-        const verifiedToken = await verifyToken(token);
+        const verifiedToken = verifyToken(token);
         if (!verifiedToken || !verifiedToken.userId) {
             console.error('[ERROR] Invalid or expired token');
             return c.json({
@@ -1031,7 +1031,7 @@ export const unsaveJobController = async (c) => {
             }, 401);
         }
         const token = authHeader.split(' ')[1];
-        const verifiedToken = await verifyToken(token);
+        const verifiedToken = verifyToken(token);
         if (!verifiedToken || !verifiedToken.userId) {
             console.error('[ERROR] Invalid or expired token');
             return c.json({
@@ -1114,7 +1114,7 @@ export const getSavedJobsController = async (c) => {
             }, 401);
         }
         const token = authHeader.split(' ')[1];
-        const verifiedToken = await verifyToken(token);
+        const verifiedToken = verifyToken(token);
         if (!verifiedToken || !verifiedToken.userId) {
             console.error('[ERROR] Invalid or expired token');
             return c.json({
@@ -1338,7 +1338,7 @@ export const getApplicantProfileController = async (c) => {
             }, 401);
         }
         const token = authHeader.split(' ')[1];
-        const verifiedToken = await verifyToken(token);
+        const verifiedToken = verifyToken(token);
         if (!verifiedToken || !verifiedToken.userId) {
             console.error('[ERROR] Invalid or expired token');
             return c.json({

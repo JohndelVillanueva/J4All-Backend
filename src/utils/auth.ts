@@ -103,11 +103,12 @@ export const authMiddleware = async (c: Context, next: Function) => {
       return c.json({ error: "Invalid token payload" }, 401);
     }
     
-    // Set user data in context
+    // ✅ FIX: Remove duplicate userId property
+    // Set user data in context - merge decoded with our userId
     const user = {
-      id: userId,
-      userId: userId, // Set both for compatibility
-      ...decoded
+      ...decoded, // This includes userId, userType, email
+      id: userId, // Set id separately for compatibility
+      // Remove the duplicate userId: userId line
     };
     
     console.log('[AUTH] Setting user in context:', user);

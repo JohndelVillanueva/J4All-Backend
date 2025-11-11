@@ -132,7 +132,11 @@ export const generateJobRecommendations = async ({
       },
       include: {
         employer: {
-          include: {
+          select: {
+            id: true,
+            company_name: true,
+            company_description: true,
+            logo_path: true,
             user: {
               select: {
                 first_name: true,
@@ -147,11 +151,7 @@ export const generateJobRecommendations = async ({
             skill: true
           }
         },
-        _count: {
-          select: {
-            applications: true
-          }
-        }
+        applications: true
       },
       orderBy: {
         posted_date: "desc"
@@ -212,7 +212,7 @@ const calculateJobMatch = (
     isRequired: rs.is_required
   }));
 
-  console.log(`🛠️ Job requires ${jobSkills.length} skills:`, jobSkills.map(s => s.name));
+  console.log(`🛠️ Job requires ${jobSkills.length} skills:`, jobSkills.map((s: { name: string }) => s.name));
 
   const { matchedSkills, missingSkills, skillMatchPercentage } = calculateSkillMatch(
     userSkills,
@@ -275,7 +275,7 @@ const calculateJobMatch = (
       hrFirstName: job.employer?.user?.first_name || '',
       hrLastName: job.employer?.user?.last_name || '',
       hrPhoto: job.employer?.user?.photo || null,
-      applicants: job._count.applications,
+      applicants: job.applications?.length || 0,
       required_skills: job.required_skills.map((rs: any) => ({
         id: rs.skill.id,
         skill_name: rs.skill.name,
@@ -294,96 +294,6 @@ const calculateJobMatch = (
   };
 };
 
-// const calculateJobMatch = (
-//   job: any,
-//   jobSeeker: any,
-//   userSkills: any[]
-// ): JobMatchScore => {
-//   let score = 0;
-//   const weightSkills = 0.6;
-//   const weightLocation = 0.2;
-//   const weightSalary = 0.15;
-//   const weightExperience = 0.05;
-
-//   // 1. Skill matching
-//   const jobSkills = job.required_skills.map((rs: any) => ({
-//     id: rs.skill.id,
-//     name: rs.skill.name,
-//     importance: rs.importance_level || 1,
-//     isRequired: rs.is_required
-//   }));
-
-//   const { matchedSkills, missingSkills, skillMatchPercentage } = calculateSkillMatch(
-//     userSkills,
-//     jobSkills
-//   );
-
-//   score += skillMatchPercentage * weightSkills;
-
-//   // 2. Location matching
-//   const locationMatch = checkLocationMatch(job.job_location, jobSeeker.location_preference);
-//   if (locationMatch) {
-//     score += 100 * weightLocation;
-//   }
-
-//   // 3. Salary matching
-//   const salaryMatch = checkSalaryMatch(
-//     job.salary_range_min,
-//     job.salary_range_max,
-//     jobSeeker.desired_salary
-//   );
-//   if (salaryMatch) {
-//     score += 100 * weightSalary;
-//   }
-
-//   // 4. Experience matching
-//   const experienceMatch = checkExperienceMatch(
-//     jobSeeker.experience_years,
-//     job.job_requirements
-//   );
-//   if (experienceMatch) {
-//     score += 100 * weightExperience;
-//   }
-
-//   // 5. Boost score for recent jobs
-//   const daysSincePosted = Math.floor(
-//     (new Date().getTime() - new Date(job.posted_date).getTime()) / (1000 * 60 * 60 * 24)
-//   );
-//   if (daysSincePosted <= 7) {
-//     score += 10; // Boost for jobs posted in last 7 days
-//   }
-
-//   return {
-//     job: {
-//       ...job,
-//       company: job.employer ? {
-//         id: job.employer.id,
-//         name: job.employer.company_name,
-//         description: job.employer.company_description,
-//         logo: job.employer.logo_path
-//       } : null,
-//       hrFirstName: job.employer?.user?.first_name || '',
-//       hrLastName: job.employer?.user?.last_name || '',
-//       hrPhoto: job.employer?.user?.photo || null,
-//       applicants: job._count.applications,
-//       required_skills: job.required_skills.map((rs: any) => ({
-//         id: rs.skill.id,
-//         skill_name: rs.skill.name,
-//         category: rs.skill.category,
-//         is_required: rs.is_required,
-//         importance_level: rs.importance_level
-//       }))
-//     },
-//     score: Math.min(Math.round(score), 100),
-//     matchedSkills,
-//     missingSkills,
-//     skillMatchPercentage,
-//     locationMatch,
-//     salaryMatch,
-//     experienceMatch
-//   };
-// };
-
 const calculateSkillMatch = (userSkills: any[], jobSkills: any[]) => {
   const matchedSkills: string[] = [];
   const missingSkills: string[] = [];
@@ -391,7 +301,7 @@ const calculateSkillMatch = (userSkills: any[], jobSkills: any[]) => {
   let totalImportance = 0;
   let matchedImportance = 0;
 
-  jobSkills.forEach(jobSkill => {
+  jobSkills.forEach((jobSkill: any) => {
     totalImportance += jobSkill.importance;
     
     const userSkill = userSkills.find(us => 
@@ -471,19 +381,12 @@ export const getRecommendedSkillsController = async (
       );
     }
 
-    // Get popular skills from high-demand jobs
+    // Get popular skills from high-demand jobs - FIXED: Remove where from include
     const popularSkills = await prisma.skill.findMany({
       include: {
         job_required_skills: {
           include: {
-            job_listing: {
-              where: {
-                is_active: true,
-                expiration_date: {
-                  gte: new Date()
-                }
-              }
-            }
+            job_listing: true // Remove where from here
           }
         }
       },
@@ -495,13 +398,21 @@ export const getRecommendedSkillsController = async (
       take: 10
     });
 
-    const recommendedSkills = popularSkills.map(skill => ({
-      id: skill.id,
-      name: skill.name,
-      category: skill.category,
-      demand: skill.job_required_skills.length,
-      jobsCount: skill.job_required_skills.filter(jrs => jrs.job_listing).length
-    }));
+    // Filter active job listings in JavaScript
+    const recommendedSkills = popularSkills.map(skill => {
+      const activeJobRequiredSkills = skill.job_required_skills.filter((jrs: any) => 
+        jrs.job_listing?.is_active && 
+        (!jrs.job_listing.expiration_date || jrs.job_listing.expiration_date >= new Date())
+      );
+      
+      return {
+        id: skill.id,
+        name: skill.name,
+        category: skill.category,
+        demand: activeJobRequiredSkills.length,
+        jobsCount: activeJobRequiredSkills.filter((jrs: any) => jrs.job_listing).length
+      };
+    });
 
     return c.json({
       success: true,
@@ -572,8 +483,7 @@ export const getSimilarJobsController = async (
         OR: [
           {
             job_title: {
-              contains: targetJob.job_title.split(' ')[0],
-              mode: 'insensitive'
+              contains: targetJob.job_title.split(' ')[0]
             }
           },
           {
@@ -591,14 +501,10 @@ export const getSimilarJobsController = async (
       },
       include: {
         employer: {
-          include: {
-            user: {
-              select: {
-                first_name: true,
-                last_name: true,
-                photo: true
-              }
-            }
+          select: {
+            id: true,
+            company_name: true,
+            logo_path: true
           }
         },
         required_skills: {
@@ -606,11 +512,7 @@ export const getSimilarJobsController = async (
             skill: true
           }
         },
-        _count: {
-          select: {
-            applications: true
-          }
-        }
+        applications: true
       },
       take: 5
     });
@@ -630,8 +532,8 @@ export const getSimilarJobsController = async (
         name: job.employer.company_name,
         logo: job.employer.logo_path
       } : null,
-      applicants: job._count.applications,
-      required_skills: job.required_skills.map(rs => ({
+      applicants: job.applications?.length || 0,
+      required_skills: job.required_skills.map((rs: any) => ({
         id: rs.skill.id,
         skill_name: rs.skill.name,
         category: rs.skill.category
@@ -721,19 +623,12 @@ export const getRecommendationStatsController = async (
     // Get skill insights
     const userSkillNames = jobSeeker.skills.map(js => js.skill.name);
     
-    // Find high-demand skills user doesn't have
+    // Find high-demand skills user doesn't have - FIXED: Remove where from include
     const highDemandSkills = await prisma.skill.findMany({
       include: {
         job_required_skills: {
           include: {
-            job_listing: {
-              where: {
-                is_active: true,
-                expiration_date: {
-                  gte: new Date()
-                }
-              }
-            }
+            job_listing: true // Remove where from here
           }
         }
       },
@@ -750,13 +645,21 @@ export const getRecommendationStatsController = async (
       take: 5
     });
 
-    const recommendedSkills = highDemandSkills.map(skill => ({
-      id: skill.id,
-      name: skill.name,
-      category: skill.category,
-      demand: skill.job_required_skills.length,
-      reason: "High demand in current job market"
-    }));
+    // Filter active job listings in JavaScript
+    const recommendedSkills = highDemandSkills.map(skill => {
+      const activeJobRequiredSkills = skill.job_required_skills.filter((jrs: any) => 
+        jrs.job_listing?.is_active && 
+        (!jrs.job_listing.expiration_date || jrs.job_listing.expiration_date >= new Date())
+      );
+      
+      return {
+        id: skill.id,
+        name: skill.name,
+        category: skill.category,
+        demand: activeJobRequiredSkills.length,
+        reason: "High demand in current job market"
+      };
+    });
 
     // Generate insights
     const insights: string[] = [];

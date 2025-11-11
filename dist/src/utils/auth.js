@@ -9,13 +9,44 @@ export function generateToken(payload) {
         expiresIn: '7d' // Token expires in 7 days
     });
 }
+// ✅ FIX: Remove async - jwt.verify is synchronous
 export function verifyToken(token) {
     try {
-        return jwt.verify(token, SECRET);
+        console.log('[AUTH] Verifying token:', token.slice(0, 10) + '...');
+        const decoded = jwt.verify(token, SECRET);
+        console.log('[AUTH] Decoded token payload:', decoded);
+        // Extract userId from different possible fields
+        const userId = decoded.userId ||
+            decoded.id ||
+            decoded.sub ||
+            decoded.user_id;
+        if (!userId) {
+            console.error('[AUTH ERROR] No user ID found in token payload');
+            throw new Error("No user ID in token");
+        }
+        // Convert to number
+        const userIdNum = parseInt(userId.toString(), 10);
+        if (isNaN(userIdNum)) {
+            console.error('[AUTH ERROR] Invalid user ID format:', userId);
+            throw new Error("Invalid user ID format");
+        }
+        // ✅ CRITICAL FIX: Extract userType from token
+        const userType = decoded.userType || decoded.user_type;
+        if (!userType) {
+            console.error('[AUTH ERROR] No userType found in token payload');
+            throw new Error("No userType in token");
+        }
+        console.log('[AUTH] Successfully verified token for user ID:', userIdNum, 'Type:', userType);
+        // ✅ RETURN FULL PAYLOAD including userType
+        return {
+            userId: userIdNum,
+            userType: userType, // This is now included
+            email: decoded.email
+        };
     }
     catch (error) {
         console.error('[AUTH ERROR] Token verification failed:', error);
-        throw new Error('Invalid or expired token');
+        throw new Error("Invalid token");
     }
 }
 export const authMiddleware = async (c, next) => {
@@ -32,23 +63,22 @@ export const authMiddleware = async (c, next) => {
     const token = authHeader.split(' ')[1];
     console.log('[AUTH] Token received:', token.slice(0, 10) + '...');
     try {
+        // ✅ FIX: Remove await since verifyToken is now synchronous
         const decoded = verifyToken(token);
         console.log('[AUTH] Decoded token:', decoded);
-        // Accept both userId and id for robustness
-        const userId = decoded.userId || decoded.id;
+        const userId = decoded.userId;
         if (!userId) {
             console.error('[AUTH ERROR] Token missing user id:', decoded);
             return c.json({ error: "Invalid token payload" }, 401);
         }
-        // Convert id to number if possible
+        // ✅ FIX: Remove duplicate userId property
+        // Set user data in context - merge decoded with our userId
         const user = {
-            ...decoded,
-            id: typeof userId === 'string' ? Number(userId) : userId
+            ...decoded, // This includes userId, userType, email
+            id: userId, // Set id separately for compatibility
+            // Remove the duplicate userId: userId line
         };
-        if (!user.id || isNaN(user.id)) {
-            console.error('[AUTH ERROR] Invalid user id in token:', user.id);
-            return c.json({ error: "Invalid user id in token" }, 401);
-        }
+        console.log('[AUTH] Setting user in context:', user);
         c.set('user', user);
         await next();
     }
