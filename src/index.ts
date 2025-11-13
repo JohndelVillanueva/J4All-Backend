@@ -76,7 +76,9 @@ app.get("/api/uploads/*", async (c) => {
       contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     }
     
-    return new Response(fileBuffer, {
+    // Convert Node Buffer to Uint8Array to satisfy Response BodyInit typing
+    const body = new Uint8Array(fileBuffer);
+    return new Response(body, {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': 'inline'
