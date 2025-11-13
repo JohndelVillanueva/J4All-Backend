@@ -1,6 +1,6 @@
 import { type Context } from "hono";
 import bcrypt, { hash } from "bcryptjs";
-import { z } from "zod"; // For validation
+import { z } from "zod";
 import { checkRateLimit } from "../../utils/rate-limit.js";
 import { generateToken, verifyPassword } from "../../utils/auth.js";
 import { authMiddleware } from "../../utils/auth.js";
@@ -10,12 +10,29 @@ import {
   sendDevelopmentEmail,
 } from "../../services/emailService.js";
 import { prisma } from "../../db.js";
-import { Prisma } from "@prisma/client"; // Added Prisma import
+import { Prisma } from "@prisma/client";
 
-import { writeFile } from "fs/promises"; // to save the file
-import fs from "fs"; // to use fs.promises.mkdir
-import path from "path"; // to resolve file path
-import crypto from "crypto"; // to generate unique file names
+import { writeFile } from "fs/promises";
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+
+// ==================== FILE SIZE VALIDATION ====================
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB in bytes
+const MAX_LOGO_SIZE = 5 * 1024 * 1024; // 5MB for logos
+const MAX_PHOTO_SIZE = 5 * 1024 * 1024; // 5MB for photos
+
+// Helper function to validate file size
+const validateFileSize = (file: File | null, maxSize: number, fieldName: string): string | null => {
+  if (!file) return null;
+  
+  if (file.size > maxSize) {
+    const maxSizeMB = (maxSize / (1024 * 1024)).toFixed(1);
+    return `${fieldName} exceeds maximum size of ${maxSizeMB}MB`;
+  }
+  
+  return null;
+};
 
 // User creation schema
 const CreateUserSchema = z.object({
@@ -91,11 +108,12 @@ const handleError = (c: Context, error: unknown) => {
     500
   );
 };
+
 // Define proper TypeScript interfaces
 interface LoginRequest {
   email: string;
   password: string;
-  userType?: string; // Made optional for better UX
+  userType?: string;
 }
 
 interface UserResponse {
@@ -119,7 +137,7 @@ export const getPendingEmployersController = async (c: Context): Promise<Respons
       where: {
         user_type: 'employer',
         is_approved: false,
-        is_email_verified: true // Only show employers who have verified their email
+        is_email_verified: true
       },
       include: {
         employer: true
@@ -145,17 +163,15 @@ export const getPendingEmployersController = async (c: Context): Promise<Respons
   }
 };
 
-// Approve employer account
 export const approveEmployerController = async (c: Context): Promise<Response> => {
   try {
     const { employerId } = await c.req.json();
-    const adminUser = c.get('user'); // From auth middleware
+    const adminUser = c.get('user');
 
     if (!employerId) {
       return c.json({ error: "Employer ID is required" }, 400);
     }
 
-    // Find the employer user
     const employerUser = await prisma.user.findUnique({
       where: { id: employerId },
       include: { employer: true }
@@ -169,7 +185,6 @@ export const approveEmployerController = async (c: Context): Promise<Response> =
       return c.json({ error: "Employer already approved" }, 400);
     }
 
-    // Update employer approval status
     const updatedUser = await prisma.user.update({
       where: { id: employerId },
       data: {
@@ -180,7 +195,6 @@ export const approveEmployerController = async (c: Context): Promise<Response> =
       }
     });
 
-    // Send approval notification email
     try {
       const userName = employerUser.first_name || employerUser.email.split('@')[0];
       await emailService.sendApprovalEmail(
@@ -189,7 +203,6 @@ export const approveEmployerController = async (c: Context): Promise<Response> =
       );
     } catch (emailError) {
       console.error("Failed to send approval email:", emailError);
-      // Continue even if email fails
     }
 
     return c.json({
@@ -207,22 +220,18 @@ export const userLoginController = async (c: Context): Promise<Response> => {
   try {
     const { email, password } = await c.req.json();
 
-    // Validate input
     if (!email || !password) {
       return c.json({ error: "Email and password required" }, 400);
     }
 
-    // Find user
     const user = await prisma.user.findUnique({ 
       where: { email: email.toLowerCase() } 
     });
     if (!user) return c.json({ error: "Invalid credentials" }, 401);
 
-    // Verify password
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) return c.json({ error: "Invalid credentials" }, 401);
 
-    // Check if account is verified
     if (!user.is_email_verified) {
       return c.json({ 
         error: "Email not verified", 
@@ -231,7 +240,6 @@ export const userLoginController = async (c: Context): Promise<Response> => {
       }, 401);
     }
 
-    // Check if employer account is approved
     if (user.user_type === 'employer' && !user.is_approved) {
       return c.json({ 
         error: "Account pending approval", 
@@ -240,7 +248,6 @@ export const userLoginController = async (c: Context): Promise<Response> => {
       }, 401);
     }
 
-    // Check if account is active
     if (!user.is_active) {
       return c.json({ 
         error: "Account inactive", 
@@ -249,7 +256,6 @@ export const userLoginController = async (c: Context): Promise<Response> => {
       }, 401);
     }
 
-    // Update last_login
     try {
       await prisma.user.update({
         where: { id: user.id },
@@ -259,7 +265,6 @@ export const userLoginController = async (c: Context): Promise<Response> => {
       console.error("Failed to update last_login:", updateError);
     }
 
-    // Generate token
     const token = generateToken({ 
       userId: user.id.toString(), 
       email: user.email, 
@@ -290,7 +295,7 @@ export const createEmployerController = async (c: Context) => {
   try {
     const formData = await c.req.formData();
 
-    // Parse the main data payload (now expecting 'data' field with JSON string)
+    // Parse the main data payload
     const payload = JSON.parse(formData.get("data") as string);
     const { user, employer, confirmPassword, agreeToTerms } = payload;
 
@@ -332,46 +337,72 @@ export const createEmployerController = async (c: Context) => {
       );
     }
 
-    // Handle file upload (now using 'logo' field instead of 'logo_path')
+    // Handle logo file upload with size validation
     let logoPath: string | null = null;
     const logoFile = formData.get("logo") as File | null;
 
     if (logoFile && logoFile.size > 0) {
+      // Validate logo file size
+      const logoSizeError = validateFileSize(logoFile, MAX_LOGO_SIZE, "Logo");
+      if (logoSizeError) {
+        return c.json(
+          {
+            success: false,
+            error: logoSizeError,
+            message: "Please compress your logo image before uploading."
+          },
+          413
+        );
+      }
+
       const buffer = await logoFile.arrayBuffer();
       const fileBytes = Buffer.from(buffer);
       const fileExt = path.extname(logoFile.name);
       const fileName = `${crypto.randomUUID()}${fileExt}`;
       const uploadDir = path.join(process.cwd(), "public", "uploads");
 
-      // Ensure upload directory exists
       await fs.promises.mkdir(uploadDir, { recursive: true });
 
       const filePath = path.join(uploadDir, fileName);
       await fs.promises.writeFile(filePath, fileBytes);
 
-      // Store relative path from public directory
       logoPath = `/uploads/${fileName}`;
+      
+      console.log(`Logo uploaded: ${fileName} (${(logoFile.size / 1024).toFixed(2)}KB)`);
     }
 
-    // Handle photo file upload
+    // Handle photo file upload with size validation
     let photoPath: string | null = null;
     const photoFile = formData.get("photo") as File | null;
 
     if (photoFile && photoFile.size > 0) {
+      // Validate photo file size
+      const photoSizeError = validateFileSize(photoFile, MAX_PHOTO_SIZE, "Photo");
+      if (photoSizeError) {
+        return c.json(
+          {
+            success: false,
+            error: photoSizeError,
+            message: "Please compress your photo before uploading."
+          },
+          413
+        );
+      }
+
       const buffer = await photoFile.arrayBuffer();
       const fileBytes = Buffer.from(buffer);
       const fileExt = path.extname(photoFile.name);
       const fileName = `user_${crypto.randomUUID()}${fileExt}`;
       const uploadDir = path.join(process.cwd(), "public", "uploads", "photos");
 
-      // Ensure upload directory exists
       await fs.promises.mkdir(uploadDir, { recursive: true });
 
       const filePath = path.join(uploadDir, fileName);
       await fs.promises.writeFile(filePath, fileBytes);
 
-      // Store relative path from public directory
       photoPath = `/uploads/photos/${fileName}`;
+      
+      console.log(`Photo uploaded: ${fileName} (${(photoFile.size / 1024).toFixed(2)}KB)`);
     }
 
     // Transaction: create user & employer
@@ -386,9 +417,9 @@ export const createEmployerController = async (c: Context) => {
           phone_number: user.phone,
           user_type: "employer",
           photo: photoPath,
-              is_active: false,           // Should be false initially
-    is_email_verified: false,   // Should be false initially  
-    is_approved: false,         // Should be false for employers
+          is_active: false,
+          is_email_verified: false,
+          is_approved: false,
         } as any,
       });
 
@@ -412,15 +443,14 @@ export const createEmployerController = async (c: Context) => {
     // Create verification token and send email
     try {
       const verificationToken = crypto.randomBytes(32).toString("hex");
-await prisma.verificationToken.create({
-  data: {
-    user_id: Number(result.userRecord.id), // Explicitly convert to number
-    token: verificationToken,
-    expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  },
-});
+      await prisma.verificationToken.create({
+        data: {
+          user_id: Number(result.userRecord.id),
+          token: verificationToken,
+          expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
 
-      // Send verification email
       const userName =
         result.userRecord.first_name || result.userRecord.email.split("@")[0];
       const emailSent = await emailService.sendVerificationEmail(
@@ -430,7 +460,6 @@ await prisma.verificationToken.create({
       );
 
       if (!emailSent && process.env.NODE_ENV === "development") {
-        // Fallback for development - log the email content
         const baseUrl = process.env.FRONTEND_URL || "http://localhost:5173";
         const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
         sendDevelopmentEmail(
@@ -445,7 +474,6 @@ await prisma.verificationToken.create({
         "Error creating verification token or sending email:",
         tokenError
       );
-      // Continue even if token creation fails
     }
 
     return c.json(
@@ -462,6 +490,19 @@ await prisma.verificationToken.create({
     );
   } catch (error) {
     console.error("Server Error:", error);
+    
+    // Handle payload too large errors
+    if (error instanceof Error && error.message.includes('payload')) {
+      return c.json(
+        {
+          success: false,
+          error: "Request payload too large",
+          message: "The uploaded files are too large. Please compress your images and try again.",
+        },
+        413
+      );
+    }
+    
     return handleError(c, error);
   }
 };
@@ -469,9 +510,8 @@ await prisma.verificationToken.create({
 export const getUserById = async (c: Context) => {
   try {
     const userId = Number(c.req.param("id"));
-    const requestingUser = c.get("user"); // From middleware
+    const requestingUser = c.get("user");
 
-    // Optional: Verify user can access this data
     if (requestingUser.id !== userId && requestingUser.user_type !== "admin") {
       return c.json({ error: "Unauthorized" }, 403);
     }
@@ -488,7 +528,7 @@ export const getUserById = async (c: Context) => {
         photo: true,
         username: true,
         created_at: true,
-        pwd_id_number: true, // 👈 add this line
+        pwd_id_number: true,
       },
     });
 
@@ -506,17 +546,14 @@ export const forgotPasswordController = async (
   try {
     const { email } = await c.req.json();
 
-    // Validate input
     if (!email) {
       return c.json({ error: "Email is required" }, 400);
     }
 
-    // Find user by email
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase() },
     });
 
-    // Always return success to prevent email enumeration
     if (!user) {
       return c.json({
         success: true,
@@ -525,16 +562,13 @@ export const forgotPasswordController = async (
       });
     }
 
-    // Delete any existing password reset tokens for this user
     await prisma.verificationToken.deleteMany({
       where: { user_id: user.id },
     });
 
-    // Generate reset token and expiry (1 hour)
     const resetToken = crypto.randomBytes(32).toString("hex");
     const resetTokenExpiry = new Date(Date.now() + 3600000);
 
-    // Store token in VerificationToken table
     await prisma.verificationToken.create({
       data: {
         user_id: user.id,
@@ -543,7 +577,6 @@ export const forgotPasswordController = async (
       },
     });
 
-    // You can use the raw token in the reset link
     await emailService.sendPasswordResetEmail(
       user.email,
       user.first_name || user.username || "User",
@@ -567,7 +600,6 @@ export const resetPasswordController = async (
   try {
     const { token, password, confirmPassword } = await c.req.json();
 
-    // Validate input
     if (!token || !password || !confirmPassword) {
       return c.json(
         { error: "Token, password, and confirmation are required" },
@@ -579,15 +611,13 @@ export const resetPasswordController = async (
       return c.json({ error: "Passwords do not match" }, 400);
     }
 
-    // Debug logging
     console.log("Looking for token:", token);
 
-    // Find the verification token
     const verificationToken = await prisma.verificationToken.findFirst({
       where: {
         token: token,
         expires: {
-          gt: new Date(), // Check if token is not expired
+          gt: new Date(),
         },
       },
       include: { user: true },
@@ -599,10 +629,8 @@ export const resetPasswordController = async (
       return c.json({ error: "Invalid or expired token" }, 400);
     }
 
-    // Hash new password
     const hashedPassword = await hash(password, 12);
 
-    // Update user's password using transaction to ensure both operations succeed
     await prisma.$transaction([
       prisma.user.update({
         where: { id: verificationToken.user_id },
@@ -615,27 +643,18 @@ export const resetPasswordController = async (
       }),
     ]);
 
-    // Send confirmation email
     try {
-      // Create a simple email sending function since sendEmail doesn't exist
       const userName =
         verificationToken.user.first_name ||
         verificationToken.user.username ||
         "User";
-      const emailContent = `
-        <p>Hello ${userName},</p>
-        <p>Your password has been successfully changed.</p>
-        <p>If you didn't make this change, please contact our support team immediately.</p>
-      `;
 
-      // Use your existing email service's transporter
       await emailService.sendPasswordResetConfirmation(
         verificationToken.user.email,
         userName
       );
     } catch (emailError) {
       console.error("Failed to send confirmation email:", emailError);
-      // Continue even if email fails
     }
 
     return c.json({
@@ -645,7 +664,6 @@ export const resetPasswordController = async (
   } catch (error) {
     console.error("Reset password error:", error);
 
-    // More detailed error logging
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       console.error("Prisma error code:", error.code);
     }
@@ -660,7 +678,6 @@ export const resetPasswordController = async (
   }
 };
 
-// Email verification controller
 export const verifyEmailController = async (c: Context): Promise<Response> => {
   try {
     const { token } = await c.req.json();
@@ -672,7 +689,6 @@ export const verifyEmailController = async (c: Context): Promise<Response> => {
       }, 400);
     }
 
-    // Find the verification token
     const verificationToken = await prisma.verificationToken.findUnique({
       where: { token },
       include: { user: true }
@@ -685,7 +701,6 @@ export const verifyEmailController = async (c: Context): Promise<Response> => {
       }, 400);
     }
 
-    // Check if token is expired
     if (verificationToken.expires < new Date()) {
       await prisma.verificationToken.delete({
         where: { id: verificationToken.id }
@@ -698,7 +713,6 @@ export const verifyEmailController = async (c: Context): Promise<Response> => {
       }, 400);
     }
 
-    // ✅ FIX: Ensure user_id is treated as number and handle type conversion
     const userId = Number(verificationToken.user_id);
     
     if (isNaN(userId)) {
@@ -709,22 +723,18 @@ export const verifyEmailController = async (c: Context): Promise<Response> => {
       }, 500);
     }
 
-    // Update user based on user type
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: { 
         is_email_verified: true,
-        // For employers: set active to false until admin approval
         is_active: verificationToken.user.user_type !== 'employer'
       }
     });
 
-    // Delete the used token
     await prisma.verificationToken.delete({
       where: { id: verificationToken.id }
     });
 
-    // Return different messages based on user type
     if (verificationToken.user.user_type === 'employer') {
       return c.json({
         success: true,
@@ -741,12 +751,10 @@ export const verifyEmailController = async (c: Context): Promise<Response> => {
   } catch (error) {
     console.error("Email verification error:", error);
     
-    // More detailed error logging
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       console.error("Prisma error code:", error.code);
       console.error("Prisma error details:", error.meta);
       
-      // Handle specific Prisma errors
       if (error.code === 'P2025') {
         return c.json({
           success: false,
@@ -764,7 +772,6 @@ export const verifyEmailController = async (c: Context): Promise<Response> => {
   }
 };
 
-// Resend verification email controller
 export const resendVerificationController = async (
   c: Context
 ): Promise<Response> => {
@@ -781,7 +788,6 @@ export const resendVerificationController = async (
       );
     }
 
-    // Find the user
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase() },
     });
@@ -796,7 +802,6 @@ export const resendVerificationController = async (
       );
     }
 
-    // Check if user is already verified
     if (user.is_active) {
       return c.json(
         {
@@ -808,22 +813,19 @@ export const resendVerificationController = async (
       );
     }
 
-    // Delete any existing verification tokens for this user
     await prisma.verificationToken.deleteMany({
       where: { user_id: user.id },
     });
 
-    // Create new verification token
     const verificationToken = crypto.randomBytes(32).toString("hex");
     await prisma.verificationToken.create({
       data: {
         user_id: user.id,
         token: verificationToken,
-        expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+        expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
     });
 
-    // Send verification email
     const userName = user.first_name || user.email.split("@")[0];
     const emailSent = await emailService.sendVerificationEmail(
       user.email,
@@ -832,7 +834,6 @@ export const resendVerificationController = async (
     );
 
     if (!emailSent && process.env.NODE_ENV === "development") {
-      // Fallback for development - log the email content
       const baseUrl = process.env.FRONTEND_URL || "http://localhost:5173";
       const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
       sendDevelopmentEmail(
@@ -848,7 +849,6 @@ export const resendVerificationController = async (
       message: emailSent
         ? "Verification email sent successfully"
         : "Account created. Please check your email for verification link.",
-      // Remove this in production - only for development
       token:
         process.env.NODE_ENV === "development" ? verificationToken : undefined,
     });
@@ -865,10 +865,8 @@ export const resendVerificationController = async (
   }
 };
 
-// Test email configuration endpoint
 export const testEmailController = async (c: Context): Promise<Response> => {
   try {
-    // Test connection first
     const connectionTest = await emailService.testConnection();
 
     if (!connectionTest) {
@@ -882,7 +880,6 @@ export const testEmailController = async (c: Context): Promise<Response> => {
       );
     }
 
-    // Try to send a test email
     const testEmail = process.env.SMTP_USER || "test@example.com";
     const testResult = await emailService.sendVerificationEmail(
       testEmail,
@@ -899,7 +896,6 @@ export const testEmailController = async (c: Context): Promise<Response> => {
         host: process.env.SMTP_HOST,
         port: process.env.SMTP_PORT,
         user: process.env.SMTP_USER,
-        // Don't expose password in response
         hasPassword: !!process.env.SMTP_PASS,
         frontendUrl: process.env.FRONTEND_URL,
         nodeEnv: process.env.NODE_ENV,
@@ -926,9 +922,6 @@ export const testEmailController = async (c: Context): Promise<Response> => {
   }
 };
 
-/**
- * Validate password reset token (for frontend to check before showing reset form)
- */
 export const validateResetTokenController = async (
   c: Context
 ): Promise<Response> => {
@@ -953,14 +946,12 @@ export const validateResetTokenController = async (
   }
 };
 
-// Simple email sending function (replacement for the missing function)
 const sendEmail = async (emailData: {
   to: string;
   subject: string;
   html: string;
 }) => {
   try {
-    // Use the existing email service's transporter
     const mailOptions = {
       from: `"J4IPWDs" <${
         process.env.SMTP_USER || "j4pwdsno.reply@gmail.com"
@@ -981,10 +972,8 @@ const sendEmail = async (emailData: {
 
 export const getStatsController = async (c: Context): Promise<Response> => {
   try {
-    // Fetch all statistics in parallel for better performance
     const [activeUsersCount, jobListingsCount, partnerEmployersCount] =
       await Promise.all([
-        // Count active users (PWD and general users, excluding employers)
         prisma.user.count({
           where: {
             user_type: {
@@ -994,18 +983,12 @@ export const getStatsController = async (c: Context): Promise<Response> => {
           },
         }),
 
-        // Count job listings (assuming you have a Job table)
-        // Replace 'job' with your actual table name if different
         prisma.jobListing
           .count({
-            where: {
-              // Add any filters for active/published jobs if needed
-              // status: 'active' or similar
-            },
+            where: {},
           })
-          .catch(() => 0), // Return 0 if job table doesn't exist yet
+          .catch(() => 0),
 
-        // Count employers
         prisma.user.count({
           where: {
             user_type: "employer",
@@ -1014,7 +997,6 @@ export const getStatsController = async (c: Context): Promise<Response> => {
         }),
       ]);
 
-    // Format numbers for display (e.g., 1000 -> "1,000+")
     const formatStat = (num: number): string => {
       if (num >= 1000) {
         return `${Math.floor(num / 1000) * 1000}+`;
