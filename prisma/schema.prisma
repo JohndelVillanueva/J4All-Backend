@@ -68,8 +68,8 @@ model JobListing {
   id               Int       @id @default(autoincrement())
   employer_id      Int
   job_title        String
-  job_description  String?
-  job_requirements String?
+job_description   String    @db.Text  // ✅ String is the Prisma type, @db.Text is the DB type
+  job_requirements  String    @db.Text  // ✅ String is the Prisma type, @db.Text is the DB type
   job_location     String?
   job_type         String?
   salary_range_min Float?
