@@ -12,7 +12,7 @@ import {
   photos, 
   interview, 
   admin,
-  recommendations // Add this import
+  recommendations
 } from './controllers/routes.js'
 import { serveStatic } from 'hono/serve-static';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
@@ -25,7 +25,17 @@ const app = new Hono()
 const PORT = process.env.PORT || 3111;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-// Serve static files (uploads, images, etc.)
+// CORS middleware - MUST be first
+app.use('/*', cors({
+  origin: [FRONTEND_URL],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  exposeHeaders: ['Content-Length', 'X-Kuma-Revision'],
+  maxAge: 600,
+  credentials: true,
+}));
+
+// ✅ STATIC FILE SERVING - MUST come before API routes
 app.use("/uploads/*", serveStatic({
   root: './',
   getContent: async (filePath: string, c) => {
@@ -42,15 +52,45 @@ app.use("/uploads/*", serveStatic({
   }
 }));
 
-// CORS middleware
-app.use('/*', cors({
-  origin: [FRONTEND_URL],
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-  exposeHeaders: ['Content-Length', 'X-Kuma-Revision'],
-  maxAge: 600,
-  credentials: true,
-}));
+// ✅ Add handler for /api/uploads/* pattern
+app.get("/api/uploads/*", async (c) => {
+  const requestPath = c.req.path; // e.g., /api/uploads/resume/filename.pdf
+  const filePath = requestPath.replace('/api/', ''); // Remove /api/ prefix
+  
+  console.log('API uploads request:', requestPath);
+  console.log('Looking for file:', filePath);
+  
+  const fullPath = path.join(process.cwd(), 'public', filePath);
+  console.log('Full path:', fullPath);
+  
+  try {
+    const fileBuffer = await fs.readFile(fullPath);
+    
+    // Determine content type based on file extension
+    let contentType = 'application/octet-stream';
+    if (filePath.endsWith('.pdf')) {
+      contentType = 'application/pdf';
+    } else if (filePath.endsWith('.doc')) {
+      contentType = 'application/msword';
+    } else if (filePath.endsWith('.docx')) {
+      contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    
+    return new Response(fileBuffer, {
+      headers: {
+        'Content-Type': contentType,
+        'Content-Disposition': 'inline'
+      }
+    });
+  } catch (error) {
+    console.error('Error reading file:', error);
+    return c.json({ 
+      success: false, 
+      error: 'File not found',
+      path: filePath 
+    }, 404);
+  }
+});
 
 // Request logging middleware
 app.use('*', async (c, next) => {
@@ -88,7 +128,7 @@ mountRoutes(photos, '/api/photos');
 mountRoutes(admin, '/api/admin');
 
 // Mount the new recommendation routes
-mountRoutes(recommendations, '/api/recommendations'); // Add this line
+mountRoutes(recommendations, '/api/recommendations');
 
 console.log('\n✅ Route registration complete\n');
 
@@ -103,7 +143,9 @@ app.get('/debug-routes', (c) => {
       'GET /health',
       'POST /api/recommendations/jobs',
       'GET /api/recommendations/skills',
-      'GET /api/recommendations/stats'
+      'GET /api/recommendations/stats',
+      'GET /uploads/resume/filename.pdf',
+      'GET /api/uploads/resume/filename.pdf'
     ]
   });
 });
@@ -127,7 +169,7 @@ if (process.env.NODE_ENV === 'development') {
 // Error handling middleware (must be last)
 app.onError(errorHandler);
 
-// 404 handler for unmatched routes
+// 404 handler for unmatched routes (MUST be last)
 app.notFound(notFoundHandler);
 
 // Start server
@@ -146,5 +188,6 @@ serve({
   console.log(`  - http://localhost:${info.port}/debug-routes`);
   console.log(`  - http://localhost:${info.port}/api/stats`);
   console.log(`  - http://localhost:${info.port}/api/recommendations/skills`);
+  console.log(`  - http://localhost:${info.port}/uploads/resume/test.pdf (test file serving)`);
   console.log(`${'='.repeat(50)}\n`);
 });
