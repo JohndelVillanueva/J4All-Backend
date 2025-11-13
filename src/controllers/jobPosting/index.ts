@@ -90,34 +90,39 @@ export const createJobPostingController = async (c: Context): Promise<Response> 
   }
 
   // --- Rate limiting ---
-  const rateLimitStore: Map<string, { count: number; startTime: number }> =
-    (global as any).jobPostingRateLimitStore || new Map();
-  (global as any).jobPostingRateLimitStore = rateLimitStore;
+const rateLimitStore: Map<string, { count: number; startTime: number }> =
+  (global as any).jobPostingRateLimitStore || new Map();
+(global as any).jobPostingRateLimitStore = rateLimitStore;
 
-  const key = `job-post:${user.id}`;
-  const now = Date.now();
-  const windowMs = 60 * 60 * 1000; 
-  const maxRequests = 10; 
+const key = `job-post:${user.id}`;
+const now = Date.now();
+const windowMs = 60 * 60 * 1000; // 1 hour window
 
-  const rateData = rateLimitStore.get(key) || { count: 0, startTime: now };
+// ✅ Use environment variable or disable in development
+const isDevelopment = process.env.NODE_ENV === 'development';
+const maxRequests = isDevelopment ? 1000 : 50; // High limit in dev, reasonable in production
 
-  if (now - rateData.startTime > windowMs) {
-    rateLimitStore.set(key, { count: 1, startTime: now });
+const rateData = rateLimitStore.get(key) || { count: 0, startTime: now };
+
+if (now - rateData.startTime > windowMs) {
+  rateLimitStore.set(key, { count: 1, startTime: now });
+} else {
+  if (rateData.count >= maxRequests) {
+    console.log(`[RATE LIMIT] User ${user.id} exceeded limit: ${rateData.count}/${maxRequests}`);
+    return c.json(
+      {
+        success: false,
+        message: "Rate limit exceeded. Please try again later.",
+        code: "RATE_LIMIT_EXCEEDED",
+        retryAfter: Math.ceil((windowMs - (now - rateData.startTime)) / 1000) // seconds until reset
+      },
+      429
+    );
   } else {
-    if (rateData.count >= maxRequests) {
-      return c.json(
-        {
-          success: false,
-          message: "Rate limit exceeded. Please try again later.",
-          code: "RATE_LIMIT_EXCEEDED",
-        },
-        429
-      );
-    } else {
-      rateData.count += 1;
-      rateLimitStore.set(key, rateData);
-    }
+    rateData.count += 1;
+    rateLimitStore.set(key, rateData);
   }
+}
 
   // --- Idempotency Check ---
   // The idempotencyKey check is skipped because the field does not exist in the JobListing model.
