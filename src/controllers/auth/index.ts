@@ -114,7 +114,7 @@ interface UserResponse {
 export const getPendingEmployersController = async (c: Context): Promise<Response> => {
   try {
     console.log('Fetching pending employers...');
-    
+     
     const pendingEmployers = await prisma.user.findMany({
       where: {
         user_type: 'employer',
