@@ -94,6 +94,58 @@ app.get("/api/uploads/*", async (c) => {
   }
 });
 
+// ✅ STATIC FILE SERVING - Simplified and fixed
+app.get("/uploads/*", async (c) => {
+  const requestPath = c.req.path; // e.g., /uploads/verification/filename.png
+  console.log('📁 Image request:', requestPath);
+  
+  // Remove leading slash and construct full path
+  const relativePath = requestPath.substring(1); // Remove leading /
+  const fullPath = path.join(process.cwd(), 'public', relativePath);
+  console.log('📂 Looking for file at:', fullPath);
+  
+  try {
+    // Check if file exists
+    await fs.access(fullPath);
+    const fileBuffer = await fs.readFile(fullPath);
+    console.log('✅ File found! Size:', fileBuffer.length, 'bytes');
+    
+    // Determine content type based on file extension
+    const ext = path.extname(fullPath).toLowerCase();
+    const contentTypes: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml',
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    };
+    const contentType = contentTypes[ext] || 'application/octet-stream';
+    
+    // Return file with proper headers
+    return new Response(new Uint8Array(fileBuffer), {
+      headers: {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=31536000',
+        'Access-Control-Allow-Origin': FRONTEND_URL,
+      }
+    });
+  } catch (error) {
+    console.error('❌ File not found:', fullPath);
+    console.error('Error:', error);
+    return c.json({ 
+      success: false, 
+      error: 'File not found',
+      requestedPath: requestPath,
+      fullPath: fullPath
+    }, 404);
+  }
+});
+
+
 // Request logging middleware
 app.use('*', async (c, next) => {
   const startTime = Date.now();

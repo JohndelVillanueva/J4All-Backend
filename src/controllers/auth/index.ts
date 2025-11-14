@@ -119,10 +119,16 @@ export const getPendingEmployersController = async (c: Context): Promise<Respons
       where: {
         user_type: 'employer',
         is_approved: false,
-        is_email_verified: true // Only show employers who have verified their email
+        is_email_verified: true
       },
       include: {
-        employer: true
+        employer: true,
+        photos: {
+          orderBy: [
+            { photo_type: 'asc' },
+            { order: 'asc' }
+          ]
+        }
       },
       orderBy: {
         created_at: 'desc'
@@ -130,6 +136,20 @@ export const getPendingEmployersController = async (c: Context): Promise<Respons
     });
 
     console.log(`Found ${pendingEmployers.length} pending employers`);
+    
+    // Debug: Log photos for each employer
+    pendingEmployers.forEach(emp => {
+      console.log(`Employer ${emp.id} (${emp.email}):`);
+      console.log('  - Profile photo:', emp.photo);
+      console.log('  - Photos count:', emp.photos?.length || 0);
+      emp.photos?.forEach((photo, idx) => {
+        console.log(`  - Photo ${idx + 1}:`, {
+          path: photo.photo_path,
+          type: photo.photo_type,
+          order: photo.order
+        });
+      });
+    });
 
     return c.json({
       success: true,
@@ -290,7 +310,7 @@ export const createEmployerController = async (c: Context) => {
   try {
     const formData = await c.req.formData();
 
-    // Parse the main data payload (now expecting 'data' field with JSON string)
+    // Parse the main data payload
     const payload = JSON.parse(formData.get("data") as string);
     const { user, employer, confirmPassword, agreeToTerms } = payload;
 
@@ -332,7 +352,7 @@ export const createEmployerController = async (c: Context) => {
       );
     }
 
-    // Handle file upload (now using 'logo' field instead of 'logo_path')
+    // Handle company logo upload
     let logoPath: string | null = null;
     const logoFile = formData.get("logo") as File | null;
 
@@ -341,40 +361,62 @@ export const createEmployerController = async (c: Context) => {
       const fileBytes = Buffer.from(buffer);
       const fileExt = path.extname(logoFile.name);
       const fileName = `${crypto.randomUUID()}${fileExt}`;
-      const uploadDir = path.join(process.cwd(), "public", "uploads");
+      const uploadDir = path.join(process.cwd(), "public", "uploads", "logos");
 
-      // Ensure upload directory exists
       await fs.promises.mkdir(uploadDir, { recursive: true });
 
       const filePath = path.join(uploadDir, fileName);
       await fs.promises.writeFile(filePath, fileBytes);
 
-      // Store relative path from public directory
-      logoPath = `/uploads/${fileName}`;
+      logoPath = `/uploads/logos/${fileName}`;
     }
 
-    // Handle photo file upload
-    let photoPath: string | null = null;
-    const photoFile = formData.get("photo") as File | null;
+    // Handle profile photo upload (single photo)
+    let profilePhotoPath: string | null = null;
+    const profilePhoto = formData.get("profilePhoto") as File | null;
 
-    if (photoFile && photoFile.size > 0) {
-      const buffer = await photoFile.arrayBuffer();
+    if (profilePhoto && profilePhoto.size > 0) {
+      const buffer = await profilePhoto.arrayBuffer();
       const fileBytes = Buffer.from(buffer);
-      const fileExt = path.extname(photoFile.name);
-      const fileName = `user_${crypto.randomUUID()}${fileExt}`;
-      const uploadDir = path.join(process.cwd(), "public", "uploads", "photos");
+      const fileExt = path.extname(profilePhoto.name);
+      const fileName = `profile_${crypto.randomUUID()}${fileExt}`;
+      const uploadDir = path.join(process.cwd(), "public", "uploads", "profiles");
 
-      // Ensure upload directory exists
       await fs.promises.mkdir(uploadDir, { recursive: true });
 
       const filePath = path.join(uploadDir, fileName);
       await fs.promises.writeFile(filePath, fileBytes);
 
-      // Store relative path from public directory
-      photoPath = `/uploads/photos/${fileName}`;
+      profilePhotoPath = `/uploads/profiles/${fileName}`;
     }
 
-    // Transaction: create user & employer
+    // Handle verification documents upload (multiple documents)
+    const verificationDocPaths: string[] = [];
+    const verificationDocsCount = parseInt(formData.get("verificationDocsCount") as string) || 0;
+
+    for (let i = 0; i < verificationDocsCount; i++) {
+      const docFile = formData.get(`verificationDoc_${i}`) as File | null;
+
+      if (docFile && docFile.size > 0) {
+        const buffer = await docFile.arrayBuffer();
+        const fileBytes = Buffer.from(buffer);
+        const fileExt = path.extname(docFile.name);
+        const fileName = `verification_${crypto.randomUUID()}${fileExt}`;
+        const uploadDir = path.join(process.cwd(), "public", "uploads", "verification");
+
+        await fs.promises.mkdir(uploadDir, { recursive: true });
+
+        const filePath = path.join(uploadDir, fileName);
+        await fs.promises.writeFile(filePath, fileBytes);
+
+        verificationDocPaths.push(`/uploads/verification/${fileName}`);
+      }
+    }
+
+    // Store verification documents as JSON
+    const verificationDocsJson = JSON.stringify(verificationDocPaths);
+
+    // Transaction: create user & employer with verification documents
     const result = await prisma.$transaction(async (tx) => {
       const userRecord = await tx.user.create({
         data: {
@@ -385,10 +427,10 @@ export const createEmployerController = async (c: Context) => {
           last_name: user.lastName,
           phone_number: user.phone,
           user_type: "employer",
-          photo: photoPath,
-              is_active: false,           // Should be false initially
-    is_email_verified: false,   // Should be false initially  
-    is_approved: false,         // Should be false for employers
+          photo: profilePhotoPath, // Single profile photo
+          is_active: false,
+          is_email_verified: false,
+          is_approved: false,
         } as any,
       });
 
@@ -403,22 +445,37 @@ export const createEmployerController = async (c: Context) => {
           founded_year: employer.foundedYear,
           address: employer.address,
           logo_path: logoPath,
+          // Add verification_documents field to your schema if needed
+          // verification_documents: verificationDocsJson,
         },
       });
 
-      return { userRecord, employerRecord };
+      // Store verification documents in UserPhoto table with verification type
+      for (let i = 0; i < verificationDocPaths.length; i++) {
+        await tx.userPhoto.create({
+          data: {
+            user_id: userRecord.id,
+            photo_path: verificationDocPaths[i],
+            photo_type: "verification", // Mark as verification document
+            is_primary: false,
+            order: i,
+          }
+        });
+      }
+
+      return { userRecord, employerRecord, verificationDocPaths };
     });
 
     // Create verification token and send email
     try {
       const verificationToken = crypto.randomBytes(32).toString("hex");
-await prisma.verificationToken.create({
-  data: {
-    user_id: Number(result.userRecord.id), // Explicitly convert to number
-    token: verificationToken,
-    expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
-  },
-});
+      await prisma.verificationToken.create({
+        data: {
+          user_id: Number(result.userRecord.id),
+          token: verificationToken,
+          expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
 
       // Send verification email
       const userName =
@@ -430,7 +487,6 @@ await prisma.verificationToken.create({
       );
 
       if (!emailSent && process.env.NODE_ENV === "development") {
-        // Fallback for development - log the email content
         const baseUrl = process.env.FRONTEND_URL || "http://localhost:5173";
         const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
         sendDevelopmentEmail(
@@ -445,7 +501,6 @@ await prisma.verificationToken.create({
         "Error creating verification token or sending email:",
         tokenError
       );
-      // Continue even if token creation fails
     }
 
     return c.json(
@@ -454,9 +509,11 @@ await prisma.verificationToken.create({
         data: {
           userId: result.userRecord.id,
           employerId: result.employerRecord.id,
+          verificationDocsUploaded: result.verificationDocPaths.length,
+          profilePhotoUploaded: !!profilePhotoPath,
         },
         message:
-          "Employer account created successfully. Please check your email to verify your account.",
+          "Employer account created successfully. Please check your email to verify your account. After email verification, your account will be reviewed by our admin team.",
       },
       201
     );

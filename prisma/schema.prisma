@@ -7,18 +7,40 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Add PhotoType enum here
+enum PhotoType {
+  profile
+  verification
+  additional
+}
+
+enum UserType {
+  employer
+  general
+  pwd
+  indigenous
+}
+
+enum WorkMode {
+  Onsite
+  Remote
+  Hybrid
+  Unknown
+}
+
 model Employer {
-  id                  Int     @id @default(autoincrement())
-  user_id             Int     @unique
-  company_name        String
-  company_description String?
-  industry            String?
-  company_size        String?
-  website_url         String?
-  logo_path           String?
-  founded_year        Int?
-  contact_person      String
-  address             String?
+  id                     Int     @id @default(autoincrement())
+  user_id                Int     @unique
+  company_name           String
+  company_description    String?
+  industry               String?
+  company_size           String?
+  website_url            String?
+  logo_path              String?
+  founded_year           Int?
+  contact_person         String
+  address                String?
+  verification_documents String? @db.Text
 
   user         User             @relation(fields: [user_id], references: [id])
   job_listings JobListing[]     @relation("EmployerJobListings")
@@ -42,7 +64,7 @@ model JobApplication {
   job_listing   JobListing     @relation("JobListingApplications", fields: [job_id], references: [id], map: "fk_job_listing_app")
   seeker        JobSeeker      @relation("SeekerApplications", fields: [seeker_id], references: [id], map: "fk_seeker_app")
   employer      Employer       @relation("EmployerToApplications", fields: [employer_id], references: [id], map: "fk_employer_app")
-  answers       Answers[] // Relation to answers
+  answers       Answers[]
   notifications Notification[] @relation("NotificationToApplication")
   Interview     Interview[]
 
@@ -51,25 +73,18 @@ model JobApplication {
 
 model Answers {
   id            Int            @id @default(autoincrement())
-  question_id   Int // Reference to question
+  question_id   Int
   answer        String
   application   JobApplication @relation(fields: [applicationId], references: [id])
   applicationId Int
-}
-
-enum WorkMode {
-  Onsite
-  Remote
-  Hybrid
-  Unknown
 }
 
 model JobListing {
   id               Int       @id @default(autoincrement())
   employer_id      Int
   job_title        String
-job_description   String    @db.Text  // ✅ String is the Prisma type, @db.Text is the DB type
-  job_requirements  String    @db.Text  // ✅ String is the Prisma type, @db.Text is the DB type
+  job_description  String    @db.Text
+  job_requirements String    @db.Text
   job_location     String?
   job_type         String?
   salary_range_min Float?
@@ -110,8 +125,8 @@ model JobSeeker {
   desired_job_title   String?
   desired_salary      Float?
   location_preference String?
-  disability          String? // Optional disability field
-  pwd_number          String? // Added PWD number field
+  disability          String?
+  pwd_number          String?
 
   applications JobApplication[] @relation("SeekerApplications")
   skills       JobSeekerSkill[]
@@ -126,8 +141,8 @@ model Notification {
   title           String
   message         String
   type            String
-  conversation_id Int? // Optional field for message notifications
-  application_id  Int? // Optional field for job application notifications
+  conversation_id Int?
+  application_id  Int?
   is_read         Boolean  @default(false)
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
@@ -143,7 +158,7 @@ model JobSeekerSkill {
   id                  Int  @id @default(autoincrement())
   seeker_id           Int
   skill_id            Int
-  proficiency_level   Int? @default(1) // 1-5 scale
+  proficiency_level   Int? @default(1)
   years_of_experience Int? @default(0)
 
   seeker JobSeeker @relation(fields: [seeker_id], references: [id], map: "fk_seeker_skill")
@@ -159,7 +174,7 @@ model SavedJob {
   saved_date DateTime @default(now())
   notes      String?
 
-  @@unique([seeker_id, job_id]) // Prevents duplicate saves
+  @@unique([seeker_id, job_id])
   @@map("saved_jobs")
 }
 
@@ -174,11 +189,20 @@ model Skill {
   @@map("skills")
 }
 
-enum UserType {
-  employer
-  general
-  pwd
-  indigenous
+model UserPhoto {
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  photo_path String
+  photo_type PhotoType @default(additional)
+  is_primary Boolean   @default(false)
+  order      Int       @default(0)
+  created_at DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([user_id, photo_type])
+  @@map("user_photos")
 }
 
 model User {
@@ -195,10 +219,10 @@ model User {
   created_at        DateTime  @default(now())
   last_login        DateTime?
   is_active         Boolean   @default(true)
-  is_email_verified Boolean   @default(false) // NEW: Track email verification
-  is_approved       Boolean   @default(true)   // NEW: Admin approval (default true for non-employers)
-  approved_at       DateTime? // NEW: When admin approved
-  approved_by       Int?      // NEW: Which admin approved
+  is_email_verified Boolean   @default(false)
+  is_approved       Boolean   @default(true)
+  approved_at       DateTime?
+  approved_by       Int?
 
   employer           Employer?
   verificationTokens VerificationToken[]
@@ -207,6 +231,7 @@ model User {
   receivedMessages   Message[]           @relation("ReceivedMessages")
   conversations1     Conversation[]      @relation("ConversationParticipant1")
   conversations2     Conversation[]      @relation("ConversationParticipant2")
+  photos             UserPhoto[]
 
   @@map("users")
 }
@@ -274,20 +299,20 @@ model Interview {
 }
 
 model Activity {
-  id               Int      @id @default(autoincrement())
-  type             String
-  actor_user_id    Int?
-  target_user_id   Int?
-  employer_id      Int?
-  seeker_id        Int?
-  job_id           Int?
-  application_id   Int?
-  conversation_id  Int?
-  title            String
-  description      String?
-  status           String?
-  metadata         Json?
-  created_at       DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  type            String
+  actor_user_id   Int?
+  target_user_id  Int?
+  employer_id     Int?
+  seeker_id       Int?
+  job_id          Int?
+  application_id  Int?
+  conversation_id Int?
+  title           String
+  description     String?
+  status          String?
+  metadata        Json?
+  created_at      DateTime @default(now())
 
   @@index([created_at])
   @@index([type])

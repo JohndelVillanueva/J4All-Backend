@@ -1,8 +1,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { auth, jobPosting, routes, skill, applicant, notifications, messages, photos, interview, admin, recommendations // Add this import
- } from './controllers/routes.js';
+import { auth, jobPosting, routes, skill, applicant, notifications, messages, photos, interview, admin, recommendations } from './controllers/routes.js';
 import { serveStatic } from 'hono/serve-static';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import path from 'path';
@@ -11,7 +10,16 @@ const app = new Hono();
 // Environment configuration
 const PORT = process.env.PORT || 3111;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-// Serve static files (uploads, images, etc.)
+// CORS middleware - MUST be first
+app.use('/*', cors({
+    origin: [FRONTEND_URL],
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    exposeHeaders: ['Content-Length', 'X-Kuma-Revision'],
+    maxAge: 600,
+    credentials: true,
+}));
+// ✅ STATIC FILE SERVING - MUST come before API routes
 app.use("/uploads/*", serveStatic({
     root: './',
     getContent: async (filePath, c) => {
@@ -28,15 +36,92 @@ app.use("/uploads/*", serveStatic({
         }
     }
 }));
-// CORS middleware
-app.use('/*', cors({
-    origin: [FRONTEND_URL],
-    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowHeaders: ['Content-Type', 'Authorization'],
-    exposeHeaders: ['Content-Length', 'X-Kuma-Revision'],
-    maxAge: 600,
-    credentials: true,
-}));
+// ✅ Add handler for /api/uploads/* pattern
+app.get("/api/uploads/*", async (c) => {
+    const requestPath = c.req.path; // e.g., /api/uploads/resume/filename.pdf
+    const filePath = requestPath.replace('/api/', ''); // Remove /api/ prefix
+    console.log('API uploads request:', requestPath);
+    console.log('Looking for file:', filePath);
+    const fullPath = path.join(process.cwd(), 'public', filePath);
+    console.log('Full path:', fullPath);
+    try {
+        const fileBuffer = await fs.readFile(fullPath);
+        // Determine content type based on file extension
+        let contentType = 'application/octet-stream';
+        if (filePath.endsWith('.pdf')) {
+            contentType = 'application/pdf';
+        }
+        else if (filePath.endsWith('.doc')) {
+            contentType = 'application/msword';
+        }
+        else if (filePath.endsWith('.docx')) {
+            contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        }
+        // Convert Node Buffer to Uint8Array to satisfy Response BodyInit typing
+        const body = new Uint8Array(fileBuffer);
+        return new Response(body, {
+            headers: {
+                'Content-Type': contentType,
+                'Content-Disposition': 'inline'
+            }
+        });
+    }
+    catch (error) {
+        console.error('Error reading file:', error);
+        return c.json({
+            success: false,
+            error: 'File not found',
+            path: filePath
+        }, 404);
+    }
+});
+// ✅ STATIC FILE SERVING - Simplified and fixed
+app.get("/uploads/*", async (c) => {
+    const requestPath = c.req.path; // e.g., /uploads/verification/filename.png
+    console.log('📁 Image request:', requestPath);
+    // Remove leading slash and construct full path
+    const relativePath = requestPath.substring(1); // Remove leading /
+    const fullPath = path.join(process.cwd(), 'public', relativePath);
+    console.log('📂 Looking for file at:', fullPath);
+    try {
+        // Check if file exists
+        await fs.access(fullPath);
+        const fileBuffer = await fs.readFile(fullPath);
+        console.log('✅ File found! Size:', fileBuffer.length, 'bytes');
+        // Determine content type based on file extension
+        const ext = path.extname(fullPath).toLowerCase();
+        const contentTypes = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp',
+            '.svg': 'image/svg+xml',
+            '.pdf': 'application/pdf',
+            '.doc': 'application/msword',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        };
+        const contentType = contentTypes[ext] || 'application/octet-stream';
+        // Return file with proper headers
+        return new Response(new Uint8Array(fileBuffer), {
+            headers: {
+                'Content-Type': contentType,
+                'Cache-Control': 'public, max-age=31536000',
+                'Access-Control-Allow-Origin': FRONTEND_URL,
+            }
+        });
+    }
+    catch (error) {
+        console.error('❌ File not found:', fullPath);
+        console.error('Error:', error);
+        return c.json({
+            success: false,
+            error: 'File not found',
+            requestedPath: requestPath,
+            fullPath: fullPath
+        }, 404);
+    }
+});
 // Request logging middleware
 app.use('*', async (c, next) => {
     const startTime = Date.now();
@@ -67,7 +152,7 @@ mountRoutes(messages, '/api/messages');
 mountRoutes(photos, '/api/photos');
 mountRoutes(admin, '/api/admin');
 // Mount the new recommendation routes
-mountRoutes(recommendations, '/api/recommendations'); // Add this line
+mountRoutes(recommendations, '/api/recommendations');
 console.log('\n✅ Route registration complete\n');
 // Debug route to check what routes are registered
 app.get('/debug-routes', (c) => {
@@ -80,7 +165,9 @@ app.get('/debug-routes', (c) => {
             'GET /health',
             'POST /api/recommendations/jobs',
             'GET /api/recommendations/skills',
-            'GET /api/recommendations/stats'
+            'GET /api/recommendations/stats',
+            'GET /uploads/resume/filename.pdf',
+            'GET /api/uploads/resume/filename.pdf'
         ]
     });
 });
@@ -100,7 +187,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 // Error handling middleware (must be last)
 app.onError(errorHandler);
-// 404 handler for unmatched routes
+// 404 handler for unmatched routes (MUST be last)
 app.notFound(notFoundHandler);
 // Start server
 console.log('Starting J4PWDs server...');
@@ -118,5 +205,6 @@ serve({
     console.log(`  - http://localhost:${info.port}/debug-routes`);
     console.log(`  - http://localhost:${info.port}/api/stats`);
     console.log(`  - http://localhost:${info.port}/api/recommendations/skills`);
+    console.log(`  - http://localhost:${info.port}/uploads/resume/test.pdf (test file serving)`);
     console.log(`${'='.repeat(50)}\n`);
 });

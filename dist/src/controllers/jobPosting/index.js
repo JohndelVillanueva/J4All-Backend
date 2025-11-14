@@ -74,18 +74,22 @@ export const createJobPostingController = async (c) => {
     global.jobPostingRateLimitStore = rateLimitStore;
     const key = `job-post:${user.id}`;
     const now = Date.now();
-    const windowMs = 60 * 60 * 1000;
-    const maxRequests = 10;
+    const windowMs = 60 * 60 * 1000; // 1 hour window
+    // ✅ Use environment variable or disable in development
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    const maxRequests = isDevelopment ? 1000 : 50; // High limit in dev, reasonable in production
     const rateData = rateLimitStore.get(key) || { count: 0, startTime: now };
     if (now - rateData.startTime > windowMs) {
         rateLimitStore.set(key, { count: 1, startTime: now });
     }
     else {
         if (rateData.count >= maxRequests) {
+            console.log(`[RATE LIMIT] User ${user.id} exceeded limit: ${rateData.count}/${maxRequests}`);
             return c.json({
                 success: false,
                 message: "Rate limit exceeded. Please try again later.",
                 code: "RATE_LIMIT_EXCEEDED",
+                retryAfter: Math.ceil((windowMs - (now - rateData.startTime)) / 1000) // seconds until reset
             }, 429);
         }
         else {

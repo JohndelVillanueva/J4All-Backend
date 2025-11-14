@@ -73,16 +73,35 @@ export const getPendingEmployersController = async (c) => {
             where: {
                 user_type: 'employer',
                 is_approved: false,
-                is_email_verified: true // Only show employers who have verified their email
+                is_email_verified: true
             },
             include: {
-                employer: true
+                employer: true,
+                photos: {
+                    orderBy: [
+                        { photo_type: 'asc' },
+                        { order: 'asc' }
+                    ]
+                }
             },
             orderBy: {
                 created_at: 'desc'
             }
         });
         console.log(`Found ${pendingEmployers.length} pending employers`);
+        // Debug: Log photos for each employer
+        pendingEmployers.forEach(emp => {
+            console.log(`Employer ${emp.id} (${emp.email}):`);
+            console.log('  - Profile photo:', emp.photo);
+            console.log('  - Photos count:', emp.photos?.length || 0);
+            emp.photos?.forEach((photo, idx) => {
+                console.log(`  - Photo ${idx + 1}:`, {
+                    path: photo.photo_path,
+                    type: photo.photo_type,
+                    order: photo.order
+                });
+            });
+        });
         return c.json({
             success: true,
             data: pendingEmployers
@@ -223,7 +242,7 @@ export const userLoginController = async (c) => {
 export const createEmployerController = async (c) => {
     try {
         const formData = await c.req.formData();
-        // Parse the main data payload (now expecting 'data' field with JSON string)
+        // Parse the main data payload
         const payload = JSON.parse(formData.get("data"));
         const { user, employer, confirmPassword, agreeToTerms } = payload;
         // Validate input with the complete schema
@@ -253,7 +272,7 @@ export const createEmployerController = async (c) => {
                     : "Username already taken",
             }, 400);
         }
-        // Handle file upload (now using 'logo' field instead of 'logo_path')
+        // Handle company logo upload
         let logoPath = null;
         const logoFile = formData.get("logo");
         if (logoFile && logoFile.size > 0) {
@@ -261,31 +280,46 @@ export const createEmployerController = async (c) => {
             const fileBytes = Buffer.from(buffer);
             const fileExt = path.extname(logoFile.name);
             const fileName = `${crypto.randomUUID()}${fileExt}`;
-            const uploadDir = path.join(process.cwd(), "public", "uploads");
-            // Ensure upload directory exists
+            const uploadDir = path.join(process.cwd(), "public", "uploads", "logos");
             await fs.promises.mkdir(uploadDir, { recursive: true });
             const filePath = path.join(uploadDir, fileName);
             await fs.promises.writeFile(filePath, fileBytes);
-            // Store relative path from public directory
-            logoPath = `/uploads/${fileName}`;
+            logoPath = `/uploads/logos/${fileName}`;
         }
-        // Handle photo file upload
-        let photoPath = null;
-        const photoFile = formData.get("photo");
-        if (photoFile && photoFile.size > 0) {
-            const buffer = await photoFile.arrayBuffer();
+        // Handle profile photo upload (single photo)
+        let profilePhotoPath = null;
+        const profilePhoto = formData.get("profilePhoto");
+        if (profilePhoto && profilePhoto.size > 0) {
+            const buffer = await profilePhoto.arrayBuffer();
             const fileBytes = Buffer.from(buffer);
-            const fileExt = path.extname(photoFile.name);
-            const fileName = `user_${crypto.randomUUID()}${fileExt}`;
-            const uploadDir = path.join(process.cwd(), "public", "uploads", "photos");
-            // Ensure upload directory exists
+            const fileExt = path.extname(profilePhoto.name);
+            const fileName = `profile_${crypto.randomUUID()}${fileExt}`;
+            const uploadDir = path.join(process.cwd(), "public", "uploads", "profiles");
             await fs.promises.mkdir(uploadDir, { recursive: true });
             const filePath = path.join(uploadDir, fileName);
             await fs.promises.writeFile(filePath, fileBytes);
-            // Store relative path from public directory
-            photoPath = `/uploads/photos/${fileName}`;
+            profilePhotoPath = `/uploads/profiles/${fileName}`;
         }
-        // Transaction: create user & employer
+        // Handle verification documents upload (multiple documents)
+        const verificationDocPaths = [];
+        const verificationDocsCount = parseInt(formData.get("verificationDocsCount")) || 0;
+        for (let i = 0; i < verificationDocsCount; i++) {
+            const docFile = formData.get(`verificationDoc_${i}`);
+            if (docFile && docFile.size > 0) {
+                const buffer = await docFile.arrayBuffer();
+                const fileBytes = Buffer.from(buffer);
+                const fileExt = path.extname(docFile.name);
+                const fileName = `verification_${crypto.randomUUID()}${fileExt}`;
+                const uploadDir = path.join(process.cwd(), "public", "uploads", "verification");
+                await fs.promises.mkdir(uploadDir, { recursive: true });
+                const filePath = path.join(uploadDir, fileName);
+                await fs.promises.writeFile(filePath, fileBytes);
+                verificationDocPaths.push(`/uploads/verification/${fileName}`);
+            }
+        }
+        // Store verification documents as JSON
+        const verificationDocsJson = JSON.stringify(verificationDocPaths);
+        // Transaction: create user & employer with verification documents
         const result = await prisma.$transaction(async (tx) => {
             const userRecord = await tx.user.create({
                 data: {
@@ -296,10 +330,10 @@ export const createEmployerController = async (c) => {
                     last_name: user.lastName,
                     phone_number: user.phone,
                     user_type: "employer",
-                    photo: photoPath,
-                    is_active: false, // Should be false initially
-                    is_email_verified: false, // Should be false initially  
-                    is_approved: false, // Should be false for employers
+                    photo: profilePhotoPath, // Single profile photo
+                    is_active: false,
+                    is_email_verified: false,
+                    is_approved: false,
                 },
             });
             const employerRecord = await tx.employer.create({
@@ -313,16 +347,30 @@ export const createEmployerController = async (c) => {
                     founded_year: employer.foundedYear,
                     address: employer.address,
                     logo_path: logoPath,
+                    // Add verification_documents field to your schema if needed
+                    // verification_documents: verificationDocsJson,
                 },
             });
-            return { userRecord, employerRecord };
+            // Store verification documents in UserPhoto table with verification type
+            for (let i = 0; i < verificationDocPaths.length; i++) {
+                await tx.userPhoto.create({
+                    data: {
+                        user_id: userRecord.id,
+                        photo_path: verificationDocPaths[i],
+                        photo_type: "verification", // Mark as verification document
+                        is_primary: false,
+                        order: i,
+                    }
+                });
+            }
+            return { userRecord, employerRecord, verificationDocPaths };
         });
         // Create verification token and send email
         try {
             const verificationToken = crypto.randomBytes(32).toString("hex");
             await prisma.verificationToken.create({
                 data: {
-                    user_id: Number(result.userRecord.id), // Explicitly convert to number
+                    user_id: Number(result.userRecord.id),
                     token: verificationToken,
                     expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
                 },
@@ -331,7 +379,6 @@ export const createEmployerController = async (c) => {
             const userName = result.userRecord.first_name || result.userRecord.email.split("@")[0];
             const emailSent = await emailService.sendVerificationEmail(result.userRecord.email, userName, verificationToken);
             if (!emailSent && process.env.NODE_ENV === "development") {
-                // Fallback for development - log the email content
                 const baseUrl = process.env.FRONTEND_URL || "http://localhost:5173";
                 const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
                 sendDevelopmentEmail(result.userRecord.email, "Verify Your J4IPWDs Account", `Click this link to verify your account: ${verificationUrl}`, `Click this link to verify your account: ${verificationUrl}`);
@@ -339,15 +386,16 @@ export const createEmployerController = async (c) => {
         }
         catch (tokenError) {
             console.error("Error creating verification token or sending email:", tokenError);
-            // Continue even if token creation fails
         }
         return c.json({
             success: true,
             data: {
                 userId: result.userRecord.id,
                 employerId: result.employerRecord.id,
+                verificationDocsUploaded: result.verificationDocPaths.length,
+                profilePhotoUploaded: !!profilePhotoPath,
             },
-            message: "Employer account created successfully. Please check your email to verify your account.",
+            message: "Employer account created successfully. Please check your email to verify your account. After email verification, your account will be reviewed by our admin team.",
         }, 201);
     }
     catch (error) {
