@@ -1,15 +1,16 @@
 import { type Context } from "hono";
 import bcrypt from "bcryptjs";
-import { z } from "zod"; // For validation
+import { z } from "zod";
 import { prisma } from "../../db.js";
 import { checkRateLimit } from "../../utils/rate-limit.js";
-import { generateToken, verifyPassword } from '../../utils/auth.js'; // Assuming you have an auth utility for token generation
+import { generateToken, verifyPassword } from '../../utils/auth.js';
 import crypto from "crypto";
 import { PhotoService } from "../../services/photoService.js";
+import fs from "fs";
+import path from "path";
 
-// User creation schema
- // ✅ Updated validation schema
- const CreateUserSchema = z.object({
+// Updated validation schema - removed pwd_id_number text validation
+const CreateUserSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   email: z.string().email("Invalid email format"),
   password: z.string()
@@ -18,150 +19,39 @@ import { PhotoService } from "../../services/photoService.js";
     .regex(/[a-z]/, "Password must contain at least one lowercase letter")
     .regex(/[0-9]/, "Password must contain at least one number")
     .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character"),
-  user_type: z.enum(["pwd", "general", "employer"]),
+  user_type: z.enum(["pwd", "indigenous", "general", "employer"]),
   first_name: z.string().min(2).optional(),
   last_name: z.string().min(2).optional(),
   phone_number: z.string().regex(/^\+?[0-9\s-]+$/).optional(),
-  pwd_id_number: z.string().optional(),
-}).refine((data) => {
-  if (data.user_type === "pwd") {
-    return !!data.pwd_id_number && data.pwd_id_number.trim().length > 0;
-  }
-  return true;
-}, {
-  message: "PWD ID Number is required for PWD users",
-  path: ["pwd_id_number"],
 });
+
 interface UserResponse {
   id: number;
   email: string;
   user_type: string;
   first_name: string | null;
   last_name: string | null;
+  username?: string;
+  phone_number?: string | null;
+  created_at?: Date;
   is_active?: boolean;
+  is_approved?: boolean;
 }
+
 interface LoginRequest {
   email: string;
   password: string;
-  userType?: string; // Made optional for better UX
+  userType?: string;
 }
 
-// export const userLoginController = async (c: Context): Promise<Response> => {
-//   // const prisma = new PrismaClient();
-
-//   try {
-//     // Validate request body
-//     const { email, password, userType }: LoginRequest = await c.req.json();
-
-//     if (!email || !password) {
-//       return c.json(
-//         {
-//           success: false,
-//           error: "Email and password are required",
-//         },
-//         400
-//       );
-//     }
-
-//     // Find user with case-insensitive email
-//     const user = await prisma.user.findUnique({
-//       where: {
-//         email: email.toLowerCase(),
-//       },
-//     });
-
-//     // Generic error message for security (don't reveal if user exists)
-//     const invalidCredentials = {
-//       success: false,
-//       error: "Invalid email or password",
-//       message: "The email or password you entered is incorrect. Please check your credentials and try again.",
-//       code: "INVALID_CREDENTIALS"
-//     };
-
-//     if (!user) {
-//       return c.json(invalidCredentials, 401);
-//     }
-
-//     // Verify password first to prevent timing attacks
-//     const isValid = await verifyPassword(password, user.password_hash);
-//     if (!isValid) {
-//       return c.json(invalidCredentials, 401);
-//     }
-
-//     // Optional: Check user type if provided
-//     if (userType && user.user_type !== userType.toLowerCase()) {
-//       return c.json(
-//         {
-//           success: false,
-//           error: `This account is not registered as ${userType}`,
-//           message: `This email is registered as a ${user.user_type} account, not as ${userType}. Please use the correct login form.`,
-//           code: "WRONG_USER_TYPE"
-//         },
-//         403
-//       );
-//     }
-
-//     // Check if account is verified (if your app has email verification)
-//     if (user.is_active === false) {
-//       return c.json(
-//         {
-//           success: false,
-//           error: "Account not verified",
-//           message: "Your account has not been verified. Please check your email and click the verification link before logging in.",
-//           requiresVerification: true,
-//           code: "ACCOUNT_NOT_VERIFIED"
-//         },
-//         403
-//       );
-//     }
-
-//     // Generate token with additional security claims
-//     const token = generateToken({
-//       userId: user.id,
-//       email: user.email,
-//       userType: user.user_type,
-//     });
-
-//     // Construct safe user response (exclude sensitive fields)
-//     const userResponse: UserResponse = {
-//       id: user.id,
-//       email: user.email,
-//       user_type: user.user_type,
-//       first_name: user.first_name,
-//       last_name: user.last_name,
-//       // Include only if your app uses verification
-//       ...(user.is_active !== undefined && { is_verified: user.is_active }),
-//     };
-
-//     return c.json({
-//       success: true,
-//       message: "Login successful",
-//       token,
-//       user: userResponse,
-//       // Include token expiration info
-//       expiresIn: "7d", // Should match your token generation
-//     });
-//   } catch (error) {
-//     console.error("Login error:", error);
-//     return c.json(
-//       {
-//         success: false,
-//         error: "Login failed",
-//         message: "An unexpected error occurred during login. Please try again.",
-//         details: error instanceof Error ? error.message : "Unknown error",
-//       },
-//       500
-//     );
-//   } finally {
-//     await prisma.$disconnect();
-//   }
-// };
-
-
+// ============================================
+// CREATE USER CONTROLLER - Updated with PWD ID photo
+// ============================================
 export const createUserController = async (c: Context) => {
   try {
     let rawData: any;
     let photoFile: File | null = null;
+    let pwdIdPhotoFile: File | null = null;
 
     // Detect content type
     const contentType = c.req.header('content-type') || '';
@@ -172,6 +62,8 @@ export const createUserController = async (c: Context) => {
       for (const [key, value] of formData.entries()) {
         if (key === 'photo' && value instanceof File) {
           photoFile = value;
+        } else if (key === 'pwd_id_photo' && value instanceof File) {
+          pwdIdPhotoFile = value;
         } else {
           rawData[key] = value;
         }
@@ -188,9 +80,7 @@ export const createUserController = async (c: Context) => {
       ])
     );
 
-   
-
-    // 2. Validate input
+    // Validate input
     const validatedData = CreateUserSchema.safeParse(sanitizedData);
     if (!validatedData.success) {
       const errors = validatedData.error.flatten().fieldErrors;
@@ -207,7 +97,20 @@ export const createUserController = async (c: Context) => {
     const userData = validatedData.data;
     const normalizedEmail = userData.email.toLowerCase();
 
-    // 3. Check password strength
+    // Check if PWD user has uploaded PWD ID photo
+    if (userData.user_type === "pwd" && (!pwdIdPhotoFile || pwdIdPhotoFile.size === 0)) {
+      return c.json(
+        {
+          success: false,
+          error: "PWD ID photo is required",
+          message: "Please upload a photo of your PWD ID card.",
+          code: "PWD_ID_REQUIRED"
+        },
+        400
+      );
+    }
+
+    // Check password strength
     try {
       const { default: zxcvbn } = await import("zxcvbn");
       const passwordStrength = zxcvbn(userData.password);
@@ -225,7 +128,7 @@ export const createUserController = async (c: Context) => {
       console.error("Password strength check failed:", e);
     }
 
-    // 4. Add rate limit check
+    // Add rate limit check
     const rateLimit = await checkRateLimit(
       c.req.header("x-forwarded-for") || "unknown"
     );
@@ -239,7 +142,37 @@ export const createUserController = async (c: Context) => {
       );
     }
 
-    // 5. Create user in transaction
+    // Handle PWD ID photo upload
+    let pwdIdPhotoPath: string | null = null;
+    if (pwdIdPhotoFile && pwdIdPhotoFile.size > 0) {
+      try {
+        const buffer = await pwdIdPhotoFile.arrayBuffer();
+        const fileBytes = Buffer.from(buffer);
+        const fileExt = path.extname(pwdIdPhotoFile.name);
+        const fileName = `pwd_id_${crypto.randomUUID()}${fileExt}`;
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'pwd_ids');
+        
+        await fs.promises.mkdir(uploadDir, { recursive: true });
+        
+        const filePath = path.join(uploadDir, fileName);
+        await fs.promises.writeFile(filePath, fileBytes);
+        
+        pwdIdPhotoPath = `/uploads/pwd_ids/${fileName}`;
+        console.log(`PWD ID photo saved: ${pwdIdPhotoPath}`);
+      } catch (fileError) {
+        console.error("Error saving PWD ID photo:", fileError);
+        return c.json(
+          {
+            success: false,
+            error: "Failed to save PWD ID photo",
+            message: "An error occurred while uploading your PWD ID photo. Please try again.",
+          },
+          500
+        );
+      }
+    }
+
+    // Create user in transaction
     const user = await prisma.$transaction(async (tx: any) => {
       const hashedPassword = await bcrypt.hash(userData.password, 10);
 
@@ -253,8 +186,10 @@ export const createUserController = async (c: Context) => {
           first_name: userData.first_name,
           last_name: userData.last_name,
           phone_number: userData.phone_number,
-          pwd_id_number: userData.user_type !== "employer" ? userData.pwd_id_number : null, // ✅ Always set for jobseekers
-          is_active: userData.user_type === "employer" ? true : false,
+          pwd_id_number: pwdIdPhotoPath, // Store PWD ID photo path
+          is_email_verified: false, // Require email verification
+          is_approved: false, // Require admin approval for PWD users
+          is_active: false, // Account inactive until both email verified and approved
         },
       });
       console.log(`User created successfully: ${createdUser.id}`);
@@ -262,13 +197,13 @@ export const createUserController = async (c: Context) => {
       return createdUser;
     });
 
-    // Save photo if present
+    // Save profile photo if present
     if (photoFile) {
       console.log('[createUserController] photoFile:', photoFile, 'type:', typeof photoFile, 'name:', photoFile.name, 'size:', photoFile.size);
       await PhotoService.updateUserPhoto(user.id, photoFile, photoFile.name);
     }
 
-    // 6. Create email verification token and send email
+    // Create email verification token and send email
     try {
       const verificationToken = crypto.randomBytes(32).toString("hex");
       await prisma.verificationToken.create({
@@ -293,7 +228,7 @@ export const createUserController = async (c: Context) => {
         const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
         sendDevelopmentEmail(
           user.email,
-          'Verify Your J4IPWDs Account',
+          'Verify Your J4PWDs Account',
           `Click this link to verify your account: ${verificationUrl}`,
           `Click this link to verify your account: ${verificationUrl}`
         );
@@ -302,7 +237,7 @@ export const createUserController = async (c: Context) => {
       console.error("Error creating verification token or sending email:", tokenError);
     }
 
-    // 7. Send response
+    // Send response
     const response = {
       success: true,
       data: {
@@ -311,10 +246,11 @@ export const createUserController = async (c: Context) => {
         first_name: user.first_name,
         last_name: user.last_name,
         user_type: user.user_type,
-        pwd_id_number: user.pwd_id_number, // ✅ include in response
+        pwd_id_number: user.pwd_id_number, // Include PWD ID photo path in response
         phone_number: user.phone_number,
         created_at: user.created_at,
       },
+      message: "Account created successfully. Please check your email to verify your account. After email verification, your account will be reviewed by our admin team."
     };
     console.log("Sending response:", JSON.stringify(response, null, 2));
     return c.json(response, 201);
@@ -387,9 +323,116 @@ export const createUserController = async (c: Context) => {
   }
 };
 
+// ============================================
+// ADMIN CONTROLLERS - For approval management
+// ============================================
 
+// Get pending PWD users for admin approval
+export const getPendingPWDUsersController = async (c: Context): Promise<Response> => {
+  try {
+    console.log('Fetching pending PWD users...');
+     
+    const pendingPWDUsers = await prisma.user.findMany({
+      where: {
+        user_type: 'pwd',
+        is_approved: false,
+        is_email_verified: true
+      },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        first_name: true,
+        last_name: true,
+        phone_number: true,
+        pwd_id_number: true, // PWD ID photo path
+        photo: true, // Profile photo
+        created_at: true,
+        is_email_verified: true,
+        is_approved: true,
+      },
+      orderBy: {
+        created_at: 'desc'
+      }
+    });
 
+    console.log(`Found ${pendingPWDUsers.length} pending PWD users`);
 
+    return c.json({
+      success: true,
+      data: pendingPWDUsers
+    });
+
+  } catch (error) {
+    console.error("Get pending PWD users error:", error);
+    return c.json({ 
+      success: false,
+      error: "Failed to fetch pending PWD users" 
+    }, 500);
+  }
+};
+
+// Approve PWD user account
+export const approvePWDUserController = async (c: Context): Promise<Response> => {
+  try {
+    const { userId } = await c.req.json();
+    const adminUser = c.get('user'); // From auth middleware
+
+    if (!userId) {
+      return c.json({ error: "User ID is required" }, 400);
+    }
+
+    // Find the PWD user
+    const pwdUser = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!pwdUser || pwdUser.user_type !== 'pwd') {
+      return c.json({ error: "PWD user not found" }, 404);
+    }
+
+    if (pwdUser.is_approved) {
+      return c.json({ error: "User already approved" }, 400);
+    }
+
+    // Update PWD user approval status
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        is_approved: true,
+        is_active: true,
+        approved_at: new Date(),
+        approved_by: adminUser.id
+      }
+    });
+
+    // Send approval notification email
+    try {
+      const { emailService } = await import("../../services/emailService.js");
+      const userName = pwdUser.first_name || pwdUser.email.split('@')[0];
+      await emailService.sendApprovalEmail(
+        pwdUser.email,
+        userName
+      );
+    } catch (emailError) {
+      console.error("Failed to send approval email:", emailError);
+      // Continue even if email fails
+    }
+
+    return c.json({
+      success: true,
+      message: "PWD user approved successfully. Approval email has been sent."
+    });
+
+  } catch (error) {
+    console.error("Approve PWD user error:", error);
+    return c.json({ error: "Failed to approve PWD user" }, 500);
+  }
+};
+
+// ============================================
+// UPDATE USER CONTROLLER
+// ============================================
 export async function updateUserController(c: Context) {
   const id = Number(c.req.param('id'));
   if (!id) {
@@ -413,81 +456,3 @@ export async function updateUserController(c: Context) {
     return c.json({ success: false, error: 'Failed to update user' }, 500);
   }
 }
-
-export const getStatsController = async (c: Context): Promise<Response> => {
-  try {
-    // Fetch all statistics in parallel for better performance
-    const [
-      activeUsersCount,
-      jobListingsCount,
-      partnerEmployersCount
-    ] = await Promise.all([
-      // Count active users (PWD and general users, excluding employers)
-      prisma.user.count({
-        where: {
-          user_type: {
-            in: ["pwd", "general", "employer"]
-          },
-          is_active: true
-        }
-      }),
-      
-      // Count job listings (assuming you have a Job table)
-      // Replace 'job' with your actual table name if different
-      prisma.jobListing.count({
-        where: {
-          // Add any filters for active/published jobs if needed
-          // status: 'active' or similar
-        }
-      }).catch(() => 0), // Return 0 if job table doesn't exist yet
-      
-      // Count employers
-      prisma.user.count({
-        where: {
-          user_type: "employer",
-          is_active: true
-        }
-      })
-    ]);
-
-    // Format numbers for display (e.g., 1000 -> "1,000+")
-    const formatStat = (num: number): string => {
-      if (num >= 1000) {
-        return `${Math.floor(num / 1000) * 1000}+`;
-      }
-      return `${num}+`;
-    };
-
-    return c.json({
-      success: true,
-      data: {
-        activeUsers: {
-          count: activeUsersCount,
-          formatted: formatStat(activeUsersCount)
-        },
-        jobListings: {
-          count: jobListingsCount,
-          formatted: formatStat(jobListingsCount)
-        },
-        partnerEmployers: {
-          count: partnerEmployersCount,
-          formatted: formatStat(partnerEmployersCount)
-        }
-      }
-    });
-  } catch (error) {
-    console.error("Error fetching stats:", error);
-    return c.json(
-      {
-        success: false,
-        error: "Failed to fetch statistics",
-        message: "An error occurred while retrieving platform statistics.",
-        details: error instanceof Error ? error.message : "Unknown error"
-      },
-      500
-    );
-  } finally {
-    await prisma.$disconnect();
-  }
-};
-               

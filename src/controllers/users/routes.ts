@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { createUserController, updateUserController } from "./index.js";
+import { approvePWDUserController, createUserController, getPendingPWDUsersController, updateUserController } from "./index.js";
 import { getEmployerByUserId, updateEmployerByUserId } from "./employerController.js";
 import { getJobSeekerByUserId, updateJobSeekerByUserId } from "./jobSeekerController.js";
 import { userLoginController } from "../auth/index.js";
@@ -16,7 +16,10 @@ const userRouter = new Hono()
   .put('/employer/:userId', updateEmployerByUserId)
   // JobSeeker endpoints
   .get('/jobseeker/:userId', getJobSeekerByUserId)
-  .put('/jobseeker/:userId', updateJobSeekerByUserId);
+  .put('/jobseeker/:userId', updateJobSeekerByUserId)
+
+  .get('/pending-pwds', getPendingPWDUsersController)
+  .post('/approve-pwd', approvePWDUserController)
 
 // Export as named export to match the import in routes.js
 export { userRouter };

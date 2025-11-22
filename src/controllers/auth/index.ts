@@ -92,24 +92,24 @@ const handleError = (c: Context, error: unknown) => {
   );
 };
 // Define proper TypeScript interfaces
-interface LoginRequest {
-  email: string;
-  password: string;
-  userType?: string; // Made optional for better UX
-}
+// interface LoginRequest {
+//   email: string;
+//   password: string;
+//   userType?: string; // Made optional for better UX
+// }
 
-interface UserResponse {
-  id: number;
-  email: string;
-  user_type: string;
-  first_name: string | null;
-  last_name: string | null;
-  username?: string;
-  phone_number?: string | null;
-  created_at?: Date;
-  is_active?: boolean;
-  is_approved?: boolean;
-}
+// interface UserResponse {
+//   id: number;
+//   email: string;
+//   user_type: string;
+//   first_name: string | null;
+//   last_name: string | null;
+//   username?: string;
+//   phone_number?: string | null;
+//   created_at?: Date;
+//   is_active?: boolean;
+//   is_approved?: boolean;
+// }
 
 export const getPendingEmployersController = async (c: Context): Promise<Response> => {
   try {
@@ -251,12 +251,15 @@ export const userLoginController = async (c: Context): Promise<Response> => {
       }, 401);
     }
 
-    // Check if employer account is approved
-    if (user.user_type === 'employer' && !user.is_approved) {
+    // Check if PWD or employer account is approved
+    if ((user.user_type === 'pwd' || user.user_type === 'employer') && !user.is_approved) {
       return c.json({ 
         error: "Account pending approval", 
-        message: "Your employer account is awaiting administrator approval. This typically takes 1-2 business days.",
-        code: "PENDING_ADMIN_APPROVAL"
+        message: user.user_type === 'employer' 
+          ? "Your employer account is awaiting administrator approval. This typically takes 1-2 business days."
+          : "Your PWD account is awaiting administrator approval. This typically takes 1-2 business days. You will receive an email once approved.",
+        code: "PENDING_ADMIN_APPROVAL",
+        userType: user.user_type
       }, 401);
     }
 
