@@ -18,8 +18,7 @@ const userRouter = new Hono()
   .get('/jobseeker/:userId', getJobSeekerByUserId)
   .put('/jobseeker/:userId', updateJobSeekerByUserId)
 
-  .get('/pending-pwds', getPendingPWDUsersController)
-  .post('/approve-pwd', approvePWDUserController)
+
 
 // Export as named export to match the import in routes.js
 export { userRouter };

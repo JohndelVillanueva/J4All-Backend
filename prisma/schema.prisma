@@ -117,8 +117,6 @@ model JobRequiredSkill {
 model JobSeeker {
   id                  Int     @id @default(autoincrement())
   user_id             Int     @unique
-  resume_text         String?
-  resume_file_path    String?
   education           String?
   experience_years    Int?
   current_job_title   String?
@@ -126,7 +124,6 @@ model JobSeeker {
   desired_salary      Float?
   location_preference String?
   disability          String?
-  pwd_number          String?
 
   applications JobApplication[] @relation("SeekerApplications")
   skills       JobSeekerSkill[]

@@ -63,6 +63,7 @@ export const updateJobSeekerByUserId = async (c: Context) => {
           : null,
         location_preference: body.location_preference,
         disability: body.disability,
+        pwd_number: body.pwd_number, // Added PWD number support
       },
     });
 
@@ -96,4 +97,4 @@ export const updateJobSeekerByUserId = async (c: Context) => {
     console.error('Update job seeker error:', error);
     return c.json({ success: false, error: 'Failed to update job seeker' }, 500);
   }
-}; 
+};
