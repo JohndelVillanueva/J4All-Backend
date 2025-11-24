@@ -531,28 +531,32 @@ export const getUserById = async (c: Context) => {
     const userId = Number(c.req.param("id"));
     const requestingUser = c.get("user"); // From middleware
 
-    // Optional: Verify user can access this data
-    if (requestingUser.id !== userId && requestingUser.user_type !== "admin") {
-      return c.json({ error: "Unauthorized" }, 403);
-    }
+    // Check if user is requesting their own profile or is an admin
+    const isOwnProfile = requestingUser.id === userId;
+    const isAdmin = requestingUser.user_type === "admin";
 
+    // Fetch user with conditional fields based on access level
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
-        email: true,
         first_name: true,
         last_name: true,
         user_type: true,
-        phone_number: true,
         photo: true,
         username: true,
-        created_at: true,
-        pwd_id_number: true, // 👈 add this line
+        // Only include sensitive fields for own profile or admin
+        email: isOwnProfile || isAdmin,
+        phone_number: isOwnProfile || isAdmin,
+        created_at: isOwnProfile || isAdmin,
+        pwd_id_number: isOwnProfile || isAdmin,
       },
     });
 
-    if (!user) return c.json({ error: "User not found" }, 404);
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
     return c.json(user);
   } catch (error) {
     console.error("Error:", error);
