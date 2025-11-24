@@ -199,12 +199,22 @@ const calculateJobMatch = (
   console.log(`🎯 Calculating match for job: "${job.job_title}"`);
   
   let score = 0;
-  const weightSkills = 0.6;
-  const weightLocation = 0.2;
-  const weightSalary = 0.15;
-  const weightExperience = 0.05;
+  
+  // 🎯 NEW WEIGHTING SYSTEM
+  const weightDisability = 0.60;    // 60% - Disability match (PWD-specific jobs)
+  const weightSkills = 0.20;        // 20% - Skills match
+  const weightLocation = 0.10;      // 10% - Location preference
+  const weightOther = 0.10;         // 10% - Other factors (salary + experience + job type)
 
-  // 1. Skill matching
+  // 1. 🦽 DISABILITY MATCHING (60% weight)
+  const disabilityMatch = checkDisabilityMatch(job, jobSeeker);
+  console.log(`🦽 Disability match: ${disabilityMatch} (job targets: ${job.target_disability || 'General'}, user: ${jobSeeker.disability || 'None'})`);
+  if (disabilityMatch) {
+    score += 100 * weightDisability;
+    console.log(`   ✅ +${100 * weightDisability} points for disability match`);
+  }
+
+  // 2. 🛠️ SKILL MATCHING (20% weight)
   const jobSkills = job.required_skills.map((rs: any) => ({
     id: rs.skill.id,
     name: rs.skill.name,
@@ -220,44 +230,30 @@ const calculateJobMatch = (
   );
 
   console.log(`📊 Skill match: ${matchedSkills.length} matched, ${missingSkills.length} missing, ${skillMatchPercentage.toFixed(1)}%`);
-
   score += skillMatchPercentage * weightSkills;
+  console.log(`   ✅ +${(skillMatchPercentage * weightSkills).toFixed(1)} points for skills`);
 
-  // 2. Location matching
+  // 3. 📍 LOCATION MATCHING (10% weight)
   const locationMatch = checkLocationMatch(job.job_location, jobSeeker.location_preference);
   console.log(`📍 Location match: ${locationMatch} (job: ${job.job_location}, user: ${jobSeeker.location_preference})`);
   if (locationMatch) {
     score += 100 * weightLocation;
+    console.log(`   ✅ +${100 * weightLocation} points for location`);
   }
 
-  // 3. Salary matching
-  const salaryMatch = checkSalaryMatch(
-    job.salary_range_min,
-    job.salary_range_max,
-    jobSeeker.desired_salary
-  );
-  console.log(`💰 Salary match: ${salaryMatch} (job: ${job.salary_range_min}-${job.salary_range_max}, user: ${jobSeeker.desired_salary})`);
-  if (salaryMatch) {
-    score += 100 * weightSalary;
-  }
+  // 4. 💼 OTHER FACTORS (10% weight total - distributed across sub-factors)
+  const otherFactorsScore = calculateOtherFactors(job, jobSeeker);
+  score += otherFactorsScore * weightOther;
+  console.log(`   ✅ +${(otherFactorsScore * weightOther).toFixed(1)} points for other factors`);
 
-  // 4. Experience matching
-  const experienceMatch = checkExperienceMatch(
-    jobSeeker.experience_years,
-    job.job_requirements
-  );
-  console.log(`📅 Experience match: ${experienceMatch} (user: ${jobSeeker.experience_years}, job reqs: ${job.job_requirements?.substring(0, 50)}...)`);
-  if (experienceMatch) {
-    score += 100 * weightExperience;
-  }
-
-  // 5. Boost score for recent jobs
+  // 5. 🚀 BOOST: Recent jobs bonus (up to +5 points)
   const daysSincePosted = Math.floor(
     (new Date().getTime() - new Date(job.posted_date).getTime()) / (1000 * 60 * 60 * 24)
   );
   if (daysSincePosted <= 7) {
-    console.log(`🚀 Recent job boost: +10 points (${daysSincePosted} days old)`);
-    score += 10; // Boost for jobs posted in last 7 days
+    const recentBoost = 5;
+    console.log(`🚀 Recent job boost: +${recentBoost} points (${daysSincePosted} days old)`);
+    score += recentBoost;
   }
 
   const finalScore = Math.min(Math.round(score), 100);
@@ -289,11 +285,94 @@ const calculateJobMatch = (
     missingSkills,
     skillMatchPercentage,
     locationMatch,
-    salaryMatch,
-    experienceMatch
+    salaryMatch: false, // Now part of "other factors"
+    experienceMatch: false // Now part of "other factors"
   };
 };
 
+// 🆕 NEW FUNCTION: Check disability matching (60% weight)
+const checkDisabilityMatch = (job: any, jobSeeker: any): boolean => {
+  // If user has no disability specified, treat all jobs equally (no penalty)
+  if (!jobSeeker.disability || jobSeeker.disability.trim() === '') {
+    console.log('   ℹ️ User has no disability specified - neutral match');
+    return true;
+  }
+
+  // If job has specific disability target
+  if (job.target_disability && job.target_disability.trim() !== '') {
+    const userDisability = jobSeeker.disability.toLowerCase().trim();
+    const targetDisability = job.target_disability.toLowerCase().trim();
+    
+    // Check if job specifically targets user's disability type
+    // Common disability categories: visual, hearing, physical, intellectual, psychosocial
+    const disabilityMatch = 
+      targetDisability.includes(userDisability) || 
+      userDisability.includes(targetDisability) ||
+      targetDisability === 'all pwd' ||
+      targetDisability === 'any disability';
+    
+    console.log(`   ${disabilityMatch ? '✅' : '❌'} Job target: "${targetDisability}", User: "${userDisability}"`);
+    return disabilityMatch;
+  }
+
+  // If job doesn't specify target disability but user is PWD, 
+  // consider it a partial match (job is PWD-friendly)
+  console.log('   ⚡ Job is PWD-friendly (no specific target)');
+  return true;
+};
+
+// 🆕 NEW FUNCTION: Calculate other factors (salary, experience, job type)
+const calculateOtherFactors = (job: any, jobSeeker: any): number => {
+  let otherScore = 0;
+  let factorCount = 0;
+
+  // Sub-factor 1: Salary match (33.3% of "other")
+  const salaryMatch = checkSalaryMatch(
+    job.salary_range_min,
+    job.salary_range_max,
+    jobSeeker.desired_salary
+  );
+  console.log(`💰 Salary match: ${salaryMatch} (job: ${job.salary_range_min}-${job.salary_range_max}, user: ${jobSeeker.desired_salary})`);
+  if (salaryMatch) {
+    otherScore += 33.3;
+  }
+  factorCount++;
+
+  // Sub-factor 2: Experience match (33.3% of "other")
+  const experienceMatch = checkExperienceMatch(
+    jobSeeker.experience_years,
+    job.job_requirements
+  );
+  console.log(`📅 Experience match: ${experienceMatch} (user: ${jobSeeker.experience_years} years)`);
+  if (experienceMatch) {
+    otherScore += 33.3;
+  }
+  factorCount++;
+
+  // Sub-factor 3: Job type preference match (33.3% of "other")
+  const jobTypeMatch = checkJobTypeMatch(job.job_type, jobSeeker.desired_job_title);
+  console.log(`💼 Job type match: ${jobTypeMatch} (job: ${job.job_type})`);
+  if (jobTypeMatch) {
+    otherScore += 33.4; // Slightly higher to reach 100
+  }
+  factorCount++;
+
+  return otherScore; // Returns 0-100
+};
+
+// 🆕 NEW FUNCTION: Check job type preference
+const checkJobTypeMatch = (jobType: string, desiredJobTitle: string): boolean => {
+  if (!jobType || !desiredJobTitle) return true;
+  
+  // This is a simple implementation - can be enhanced based on your job types
+  const type = jobType.toLowerCase();
+  const desired = desiredJobTitle.toLowerCase();
+  
+  // Check if job type aligns with desired title
+  return desired.includes(type) || type.includes(desired);
+};
+
+// Keep existing helper functions but update their usage
 const calculateSkillMatch = (userSkills: any[], jobSkills: any[]) => {
   const matchedSkills: string[] = [];
   const missingSkills: string[] = [];
@@ -334,7 +413,12 @@ const checkLocationMatch = (jobLocation: string, userPreference: string): boolea
   const jobLoc = jobLocation.toLowerCase();
   const userLoc = userPreference.toLowerCase();
   
-  // Simple location matching - can be enhanced with geolocation
+  // Enhanced location matching
+  // Check for city, province, or remote work
+  if (jobLoc.includes('remote') || userLoc.includes('remote')) {
+    return true; // Remote jobs match all preferences
+  }
+  
   return jobLoc.includes(userLoc) || userLoc.includes(jobLoc);
 };
 
