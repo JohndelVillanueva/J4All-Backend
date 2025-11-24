@@ -623,7 +623,6 @@ export const getEmployerApplicantsController = async (c: Context): Promise<Respo
         desiredJobTitle: app.seeker.desired_job_title,
         desiredSalary: app.seeker.desired_salary,
         locationPreference: app.seeker.location_preference,
-        resumeText: app.seeker.resume_text,
         user_id: app.seeker.user_id, // Add user_id for messaging
         job: {
           id: app.job_listing.id,
@@ -1591,8 +1590,6 @@ export const getApplicantProfileController = async (c: Context): Promise<Respons
         },
         jobSeeker: {
           id: jobSeeker.id,
-          resume_text: jobSeeker.resume_text,
-          resume_file_path: jobSeeker.resume_file_path,
           education: jobSeeker.education,
           experience_years: jobSeeker.experience_years,
           current_job_title: jobSeeker.current_job_title,

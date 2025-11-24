@@ -566,7 +566,6 @@ export const getEmployerApplicantsController = async (c) => {
                 desiredJobTitle: app.seeker.desired_job_title,
                 desiredSalary: app.seeker.desired_salary,
                 locationPreference: app.seeker.location_preference,
-                resumeText: app.seeker.resume_text,
                 user_id: app.seeker.user_id, // Add user_id for messaging
                 job: {
                     id: app.job_listing.id,
@@ -1215,7 +1214,7 @@ export const getSavedJobsController = async (c) => {
                 company: job?.employer?.company_name || 'Unknown Company',
                 location: job?.job_location || '',
                 salary: job?.salary_range_min && job?.salary_range_max
-                    ? `$${job.salary_range_min.toLocaleString()} - $${job.salary_range_max.toLocaleString()}`
+                    ? `${job.salary_range_min.toLocaleString()} - ${job.salary_range_max.toLocaleString()}`
                     : '',
                 type: job?.job_type || '',
                 posted: job?.posted_date ? job.posted_date.toISOString().split('T')[0] : '',
@@ -1234,6 +1233,8 @@ export const getSavedJobsController = async (c) => {
                 })),
                 hrFirstName: employerUser?.first_name || '',
                 hrLastName: employerUser?.last_name || '',
+                employer_id: job?.employer?.id || null,
+                employer_user_id: job?.employer?.user_id || null,
             };
         });
         return c.json({
@@ -1267,7 +1268,6 @@ export const getSavedJobsController = async (c) => {
         }, 500);
     }
 };
-// Update application status (for employers)
 export const getApplicationDetailsController = async (c) => {
     const id = c.req.param('id');
     try {
@@ -1307,8 +1307,8 @@ export const getApplicationDetailsController = async (c) => {
                 company: application.job_listing.employer.company_name,
                 status: application.status,
                 applied_at: application.application_date,
-                resume: application.resume, // <-- add this
-                cover_letter: application.cover_letter, // <-- add this
+                resume: application.resume,
+                cover_letter: application.cover_letter,
                 applicant: applicantUser ? {
                     first_name: applicantUser.first_name,
                     last_name: applicantUser.last_name,
@@ -1442,8 +1442,6 @@ export const getApplicantProfileController = async (c) => {
                 },
                 jobSeeker: {
                     id: jobSeeker.id,
-                    resume_text: jobSeeker.resume_text,
-                    resume_file_path: jobSeeker.resume_file_path,
                     education: jobSeeker.education,
                     experience_years: jobSeeker.experience_years,
                     current_job_title: jobSeeker.current_job_title,
@@ -1458,6 +1456,88 @@ export const getApplicantProfileController = async (c) => {
     }
     catch (error) {
         console.error('[ERROR] Error fetching applicant profile:', error);
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+            return c.json({
+                success: false,
+                error: "Database error occurred"
+            }, 500);
+        }
+        if (error instanceof Error) {
+            return c.json({
+                success: false,
+                error: error.message || "Internal server error"
+            }, 500);
+        }
+        return c.json({
+            success: false,
+            error: "Internal server error"
+        }, 500);
+    }
+};
+export const checkSavedJobController = async (c) => {
+    try {
+        console.log('[DEBUG] Checking if job is saved');
+        // Get and verify token
+        const authHeader = c.req.header('Authorization');
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            console.error('[ERROR] Missing or invalid Authorization header');
+            return c.json({
+                success: false,
+                error: "Missing or invalid authorization"
+            }, 401);
+        }
+        const token = authHeader.split(' ')[1];
+        const verifiedToken = verifyToken(token);
+        if (!verifiedToken || !verifiedToken.userId) {
+            console.error('[ERROR] Invalid or expired token');
+            return c.json({
+                success: false,
+                error: "Invalid authorization token"
+            }, 401);
+        }
+        const userId = verifiedToken.userId;
+        // Find the JobSeeker profile for this user
+        const jobSeeker = await prisma.jobSeeker.findUnique({
+            where: { user_id: userId }
+        });
+        if (!jobSeeker) {
+            console.log('[INFO] No JobSeeker profile found for user:', userId);
+            return c.json({
+                success: true,
+                data: { isSaved: false },
+                message: "User is not a job seeker"
+            });
+        }
+        const seekerId = jobSeeker.id;
+        // Get job ID from query parameter
+        const jobId = parseInt(c.req.param('jobId'));
+        if (isNaN(jobId)) {
+            return c.json({
+                success: false,
+                error: "Invalid job ID format"
+            }, 400);
+        }
+        // Check if job is saved
+        const savedJob = await prisma.savedJob.findUnique({
+            where: {
+                seeker_id_job_id: {
+                    seeker_id: seekerId,
+                    job_id: jobId
+                }
+            }
+        });
+        const isSaved = !!savedJob;
+        console.log('[DEBUG] Job saved status:', { jobId, isSaved });
+        return c.json({
+            success: true,
+            data: {
+                isSaved: isSaved,
+                job_id: jobId
+            }
+        });
+    }
+    catch (error) {
+        console.error('[ERROR] Error checking saved job:', error);
         if (error instanceof Prisma.PrismaClientKnownRequestError) {
             return c.json({
                 success: false,

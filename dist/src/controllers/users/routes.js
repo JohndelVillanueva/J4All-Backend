@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { createUserController, updateUserController } from "./index.js";
+import { approvePWDUserController, createUserController, getPendingPWDUsersController, updateUserController } from "./index.js";
 import { getEmployerByUserId, updateEmployerByUserId } from "./employerController.js";
 import { getJobSeekerByUserId, updateJobSeekerByUserId } from "./jobSeekerController.js";
 import { userLoginController } from "../auth/index.js";

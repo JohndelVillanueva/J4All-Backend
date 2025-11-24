@@ -66,6 +66,24 @@ const handleError = (c, error) => {
             : undefined,
     }, 500);
 };
+// Define proper TypeScript interfaces
+// interface LoginRequest {
+//   email: string;
+//   password: string;
+//   userType?: string; // Made optional for better UX
+// }
+// interface UserResponse {
+//   id: number;
+//   email: string;
+//   user_type: string;
+//   first_name: string | null;
+//   last_name: string | null;
+//   username?: string;
+//   phone_number?: string | null;
+//   created_at?: Date;
+//   is_active?: boolean;
+//   is_approved?: boolean;
+// }
 export const getPendingEmployersController = async (c) => {
     try {
         console.log('Fetching pending employers...');
@@ -188,12 +206,15 @@ export const userLoginController = async (c) => {
                 code: "EMAIL_NOT_VERIFIED"
             }, 401);
         }
-        // Check if employer account is approved
-        if (user.user_type === 'employer' && !user.is_approved) {
+        // Check if PWD or employer account is approved
+        if ((user.user_type === 'pwd' || user.user_type === 'employer') && !user.is_approved) {
             return c.json({
                 error: "Account pending approval",
-                message: "Your employer account is awaiting administrator approval. This typically takes 1-2 business days.",
-                code: "PENDING_ADMIN_APPROVAL"
+                message: user.user_type === 'employer'
+                    ? "Your employer account is awaiting administrator approval. This typically takes 1-2 business days."
+                    : "Your PWD account is awaiting administrator approval. This typically takes 1-2 business days. You will receive an email once approved.",
+                code: "PENDING_ADMIN_APPROVAL",
+                userType: user.user_type
             }, 401);
         }
         // Check if account is active
@@ -407,27 +428,29 @@ export const getUserById = async (c) => {
     try {
         const userId = Number(c.req.param("id"));
         const requestingUser = c.get("user"); // From middleware
-        // Optional: Verify user can access this data
-        if (requestingUser.id !== userId && requestingUser.user_type !== "admin") {
-            return c.json({ error: "Unauthorized" }, 403);
-        }
+        // Check if user is requesting their own profile or is an admin
+        const isOwnProfile = requestingUser.id === userId;
+        const isAdmin = requestingUser.user_type === "admin";
+        // Fetch user with conditional fields based on access level
         const user = await prisma.user.findUnique({
             where: { id: userId },
             select: {
                 id: true,
-                email: true,
                 first_name: true,
                 last_name: true,
                 user_type: true,
-                phone_number: true,
                 photo: true,
                 username: true,
-                created_at: true,
-                pwd_id_number: true, // 👈 add this line
+                // Only include sensitive fields for own profile or admin
+                email: isOwnProfile || isAdmin,
+                phone_number: isOwnProfile || isAdmin,
+                created_at: isOwnProfile || isAdmin,
+                pwd_id_number: isOwnProfile || isAdmin,
             },
         });
-        if (!user)
+        if (!user) {
             return c.json({ error: "User not found" }, 404);
+        }
         return c.json(user);
     }
     catch (error) {

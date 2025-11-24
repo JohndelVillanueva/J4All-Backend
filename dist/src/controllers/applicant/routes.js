@@ -1,7 +1,5 @@
 import { Hono } from "hono";
-// import {
-// } from "./index.js";
-import { applyForJobController, getUserApplicationsController, getEmployerApplicantsController, saveJobController, unsaveJobController, getSavedJobsController, updateApplicationStatusController, getApplicationDetailsController, getApplicantProfileController } from "./index.js";
+import { applyForJobController, getUserApplicationsController, getEmployerApplicantsController, saveJobController, unsaveJobController, getSavedJobsController, updateApplicationStatusController, getApplicationDetailsController, getApplicantProfileController, checkSavedJobController } from "./index.js";
 import { authMiddleware } from "../../utils/auth.js";
 const applicant = new Hono()
     .post('/job-applications', applyForJobController)
@@ -12,8 +10,7 @@ const applicant = new Hono()
     .get('/applicant-profile', authMiddleware, getApplicantProfileController)
     .post('/save-job', authMiddleware, saveJobController)
     .delete('/unsave-job', authMiddleware, unsaveJobController)
-    .get('/saved-jobs', authMiddleware, getSavedJobsController);
-//   .post("/login", userLoginController)
-//   .post("/create", createUserController)
-//   .post("/createEmployer", createEmployerController)
+    .get('/saved-jobs', authMiddleware, getSavedJobsController)
+    // FIX: Remove '/api/' prefix - it's already in the base path
+    .get('/check-saved-job/:jobId', authMiddleware, checkSavedJobController);
 export default applicant;

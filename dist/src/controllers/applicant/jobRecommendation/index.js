@@ -473,7 +473,6 @@ export const getRecommendationStatsController = async (c) => {
             jobSeeker.desired_salary,
             jobSeeker.location_preference,
             jobSeeker.experience_years,
-            jobSeeker.resume_text || jobSeeker.resume_file_path
         ];
         const completedFields = profileFields.filter(field => field !== null && field !== undefined && field !== '').length;
         const profileCompletion = Math.round((completedFields / profileFields.length) * 100);

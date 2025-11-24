@@ -50,8 +50,6 @@ export const updateJobSeekerByUserId = async (c: Context) => {
     const updated = await prisma.jobSeeker.update({
       where: { user_id: userId },
       data: {
-        resume_text: body.resume_text,
-        resume_file_path: body.resume_file_path,
         education: body.education,
         experience_years: body.experience_years !== undefined && body.experience_years !== null && body.experience_years !== ''
           ? Number(body.experience_years)
@@ -63,7 +61,6 @@ export const updateJobSeekerByUserId = async (c: Context) => {
           : null,
         location_preference: body.location_preference,
         disability: body.disability,
-        pwd_number: body.pwd_number, // Added PWD number support
       },
     });
 
